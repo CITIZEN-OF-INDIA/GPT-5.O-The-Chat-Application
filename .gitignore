@@ -1,0 +1,15 @@
+# ignore node_modules everywhere
+**/node_modules/
+
+# ignore env files everywhere
+**/.env*
+!**/.env.example
+
+# build outputs
+**/dist/
+**/build/
+**/.next/
+
+# logs / OS
+*.log
+.DS_Store
