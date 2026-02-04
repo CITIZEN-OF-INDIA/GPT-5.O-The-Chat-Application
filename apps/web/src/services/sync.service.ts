@@ -2,6 +2,7 @@ import { getDB } from "../db/indexedDB";
 import {
   upsertMessages,
   getQueuedMessages,
+  deleteMessage as deleteMessageFromDB,
   updateMessageStatus as updateMessageStatusDB,
 } from "../db/message.repo";
 import { useMessageStore } from "../store/message.store";
@@ -30,6 +31,19 @@ async function setLastSyncedAt(chatId: string, timestamp: number) {
 }
 
 /**
+ * Seed lastSyncedAt from a chat's lastMessage (server-provided)
+ */
+export async function seedLastSyncedAtFromChat(chatId: string, lastMessageAt?: number) {
+  if (!lastMessageAt) return;
+
+  const existing = await getLastSyncedAt(chatId);
+  if (existing > 0) return;
+
+  await setLastSyncedAt(chatId, lastMessageAt);
+}
+
+/**
+/**
  * Fetch ONLY new messages from server
  */
 export async function syncNewMessages(chatId: string) {
@@ -51,9 +65,11 @@ export async function syncNewMessages(chatId: string) {
     );
 
   const lastSynced = await getLastSyncedAt(chatId);
+  const lastMessageAt = Number(lastMessage?.createdAt);
+  const lastSyncedAt = Number(lastSynced);
   const lastRelevantTimestamp = Math.max(
-    lastMessage?.createdAt ?? 0,
-    lastSynced
+    Number.isFinite(lastMessageAt) ? lastMessageAt : 0,
+    Number.isFinite(lastSyncedAt) ? lastSyncedAt : 0
   );
 
   // 2️⃣ Fetch newer messages
@@ -69,30 +85,65 @@ export async function syncNewMessages(chatId: string) {
   const rawMessages: any[] = await res.json();
   if (!rawMessages.length) return;
 
-  // 3️⃣ Build existing ID set (id + clientId)
-  const existingIds = new Set(
-    (await db.getAll("messages")).flatMap((m) =>
-      [m.id, m.clientId].filter(Boolean)
-    )
+  // 3?? Build existing message maps (id + clientId)
+  const existing = await db.getAll("messages");
+  const existingById = new Map(existing.map((m) => [m.id, m]));
+  const existingByClientId = new Map(
+    existing
+      .filter((m) => m.clientId)
+      .map((m) => [m.clientId as string, m])
   );
 
-  const messages: Message[] = rawMessages
-    .map(normalizeMessage)
-    .filter(
-      (m) =>
-        !existingIds.has(m.id) &&
-        (!m.clientId || !existingIds.has(m.clientId))
-    );
+  const normalized: Message[] = rawMessages.map(normalizeMessage);
+  if (!normalized.length) return;
 
-  if (!messages.length) return;
+  const { addMessage, replaceMessage } = useMessageStore.getState();
+  const toUpsert: Message[] = [];
+  const toAdd: Message[] = [];
+  const toReplace: { clientId: string; msg: Message }[] = [];
 
-  // 4️⃣ Persist + hydrate
-  await upsertMessages(messages);
-  const { addMessage } = useMessageStore.getState();
-  messages.forEach((msg) => addMessage({ ...msg, __source: "sync" }));
+  for (const msg of normalized) {
+    if (existingById.has(msg.id)) {
+      // Same server id already exists: update status/fields
+      toUpsert.push(msg);
+      toAdd.push(msg);
+      continue;
+    }
 
-  // 5️⃣ Update sync timestamp
-  const newestTimestamp = Math.max(...messages.map((m) => m.createdAt));
+    if (
+      msg.clientId &&
+      (existingById.has(msg.clientId) ||
+        existingByClientId.has(msg.clientId))
+    ) {
+      // Server message corresponds to an optimistic/local one
+      toUpsert.push(msg);
+      toReplace.push({ clientId: msg.clientId, msg });
+      continue;
+    }
+
+    // New message
+    toUpsert.push(msg);
+    toAdd.push(msg);
+  }
+
+  if (!toUpsert.length) return;
+
+  // 4?? Persist + hydrate (with reconciliation)
+  for (const { clientId } of toReplace) {
+    // Remove local optimistic record before inserting server version
+    await deleteMessageFromDB(clientId);
+  }
+  await upsertMessages(toUpsert);
+
+  toReplace.forEach(({ clientId, msg }) => {
+    // Replace optimistic/local entry in Zustand
+    replaceMessage(clientId, msg);
+  });
+
+  toAdd.forEach((msg) => addMessage({ ...msg, __source: "sync" }));
+
+  // 5?? Update sync timestamp
+  const newestTimestamp = Math.max(...toUpsert.map((m) => m.createdAt));
   await setLastSyncedAt(chatId, newestTimestamp);
 }
 
@@ -127,51 +178,55 @@ export async function flushQueuedMessages() {
     await updateMessageStatusDB(msg.id, MessageStatus.SENDING);
     useMessageStore.getState().updateStatus(msg.id, MessageStatus.SENDING);
 
-    
-    socket.emit(
-      
-      "message:send",
-      {
-        chatId: msg.chatId,
-        receiverId: receiver.id,
-        text: msg.text,
-        clientId: msg.id,
-      },
-      async (ack: { ok: boolean; message?: Message }) => {
-        if (!ack?.ok) {
-          await updateMessageStatusDB(msg.id, MessageStatus.QUEUED);
-          useMessageStore.getState().updateStatus(
-            msg.id,
-            MessageStatus.QUEUED
-          );
-          return;
-        }
-
-        if (!ack.message) return;
-
-        // ✅ normalize server message
-        const serverMsg = normalizeMessage(ack.message);
-
-        // 🔑 CRITICAL: replace optimistic message
-        
-        serverMsg.clientId = msg.id;
-        serverMsg.status = MessageStatus.SENT;
-
-        // IndexedDB
-        await upsertMessages([serverMsg]);
-
-        // Zustand
-        useMessageStore
-          .getState()
-          .replaceMessage(msg.id, serverMsg);
-
-        console.log("📤 queued message sent & reconciled", {
-          chatId: msg.chatId,
-          to: receiver.id,
-          text: msg.text,
-        });
+    const ack = await new Promise<{ ok: boolean; message?: Message }>(
+      (resolve) => {
+        socket.emit(
+          "message:send",
+          {
+            chatId: msg.chatId,
+            receiverId: receiver.id,
+            text: msg.text,
+            clientId: msg.id,
+          },
+          (res: { ok: boolean; message?: Message }) => resolve(res)
+        );
       }
     );
+
+    if (!ack?.ok) {
+      await updateMessageStatusDB(msg.id, MessageStatus.QUEUED);
+      useMessageStore.getState().updateStatus(
+        msg.id,
+        MessageStatus.QUEUED
+      );
+      continue;
+    }
+
+    if (!ack.message) continue;
+
+    // ✅ normalize server message
+    const serverMsg = normalizeMessage(ack.message);
+
+    // 🔑 CRITICAL: replace optimistic message
+    serverMsg.clientId = msg.id;
+    serverMsg.status = MessageStatus.SENT;
+
+    // remove optimistic record keyed by clientId
+    await deleteMessageFromDB(msg.id);
+
+    // IndexedDB
+    await upsertMessages([serverMsg]);
+
+    // Zustand
+    useMessageStore
+      .getState()
+      .replaceMessage(msg.id, serverMsg);
+
+    console.log("📤 queued message sent & reconciled", {
+      chatId: msg.chatId,
+      to: receiver.id,
+      text: msg.text,
+    });
   }
 }
 

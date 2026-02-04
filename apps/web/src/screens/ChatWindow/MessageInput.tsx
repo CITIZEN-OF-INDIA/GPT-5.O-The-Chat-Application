@@ -3,6 +3,7 @@ import { getSocket } from "../../services/socket.service";
 import { useMessageStore } from "../../store/message.store";
 import {
   addMessage as addMessageToDB,
+  deleteMessage as deleteMessageFromDB,
   updateMessageStatus as updateMessageStatusDB,
 } from "../../db/message.repo";
 import { getUserIdFromToken } from "../../utils/jwt";
@@ -52,7 +53,7 @@ export default function MessageInput({
       type: MessageType.TEXT,
       text,
       createdAt: Date.now(),
-      status: socket ? MessageStatus.SENDING : MessageStatus.QUEUED,
+      status: socket && navigator.onLine ? MessageStatus.SENDING : MessageStatus.QUEUED,
     };
 
     // 1️⃣ Optimistic UI
@@ -62,11 +63,18 @@ export default function MessageInput({
     await addMessageToDB(baseMessage);
 
     // 3️⃣ ONLINE → SEND
-    if (socket) {
+    if (socket && navigator.onLine) {
       console.log("🚀 SENDING MESSAGE", {
   text,
   clientId: messageId,
 });
+
+      let acked = false;
+      const ackTimeout = setTimeout(async () => {
+        if (acked) return;
+        updateStatus(messageId, MessageStatus.QUEUED);
+        await updateMessageStatusDB(messageId, MessageStatus.QUEUED);
+      }, 1000);
 
       socket.emit(
         "message:send",
@@ -77,6 +85,9 @@ export default function MessageInput({
           clientId: messageId,
         },
         async (ack: { ok: boolean; message?: Message }) => {
+          acked = true;
+          clearTimeout(ackTimeout);
+
           if (!ack?.ok || !ack.message) {
             updateStatus(messageId, MessageStatus.QUEUED);
             await updateMessageStatusDB(
@@ -94,6 +105,9 @@ export default function MessageInput({
       clientId: messageId,            // keep clientId for reconciliation
       status: MessageStatus.SENT,
     };
+
+          // remove optimistic record keyed by clientId
+          await deleteMessageFromDB(messageId);
 
           // replace in IndexedDB
           await addMessageToDB(reconciled);

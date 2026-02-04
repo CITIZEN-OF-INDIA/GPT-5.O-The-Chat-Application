@@ -24,12 +24,44 @@ export async function getMessagesByChat(chatId: string): Promise<Message[]> {
 }
 
 /**
+ * Get messages for a chat (paged, newest-first window)
+ */
+export async function getMessagesByChatPage(
+  chatId: string,
+  options?: { limit?: number; before?: number }
+): Promise<Message[]> {
+  const db = await getDB();
+  const index = db.transaction("messages").store.index("by-chat-createdAt");
+
+  const limit = options?.limit ?? 50;
+  const before = options?.before ?? Number.MAX_SAFE_INTEGER;
+
+  const range = IDBKeyRange.bound(
+    [chatId, 0],
+    [chatId, before],
+    false,
+    true
+  );
+
+  const messages: Message[] = [];
+  let cursor = await index.openCursor(range, "prev");
+
+  while (cursor && messages.length < limit) {
+    messages.push(cursor.value);
+    cursor = await cursor.continue();
+  }
+
+  return messages.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
  * Get queued messages
  */
 export async function getQueuedMessages(): Promise<Message[]> {
   const db = await getDB();
   const index = db.transaction("messages").store.index("by-status");
-  return index.getAll("queued");
+  const queued = await index.getAll("queued");
+  return queued.sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /**
@@ -60,6 +92,14 @@ export async function upsertMessages(messages: Message[]) {
   }
 
   await tx.done;
+}
+
+/**
+ * Delete a message by id
+ */
+export async function deleteMessage(messageId: string) {
+  const db = await getDB();
+  await db.delete("messages", messageId);
 }
 
 

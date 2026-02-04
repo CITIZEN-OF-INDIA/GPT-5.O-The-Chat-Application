@@ -65,7 +65,8 @@ export async function getMessages(req: Request, res: Response) {
   try {
     const userId = (req as any).userId;
     const chatId = req.query.chatId as string;
-    const since = Number(req.query.since ?? 0);
+    let since = Number(req.query.since ?? 0);
+    if (!Number.isFinite(since)) since = 0;
 
     if (!chatId) {
       return res.status(400).json({ error: "chatId query parameter required" });
@@ -77,8 +78,49 @@ export async function getMessages(req: Request, res: Response) {
       return res.status(403).json({ error: "Not authorized for this chat" });
     }
 
+    // If client has no cursor, fall back to server-side cursor
+    let effectiveSince = since;
+    if (effectiveSince <= 0) {
+      const serverLast = await MessageService.getLastSyncedAt(
+        userId,
+        chatId
+      );
+      if (serverLast) {
+        effectiveSince = serverLast.getTime();
+      }
+    }
+
     // Fetch messages from MessageService
-    const messages = await MessageService.getMessages(chatId, since);
+    const messages = await MessageService.getMessages(chatId, effectiveSince);
+
+    // Update server-side cursor on successful sync
+    if (messages.length > 0) {
+      const newest = messages.reduce((max, m) => {
+        const ts = m.createdAt instanceof Date ? m.createdAt.getTime() : 0;
+        return ts > max ? ts : max;
+      }, 0);
+      if (newest > 0) {
+        await MessageService.setLastSyncedAt(
+          userId,
+          chatId,
+          new Date(newest)
+        );
+      }
+    } else if (effectiveSince > 0) {
+      await MessageService.setLastSyncedAt(
+        userId,
+        chatId,
+        new Date(effectiveSince)
+      );
+    }
+
+    console.log("getMessages", {
+      chatId,
+      since,
+      effectiveSince,
+      count: messages.length,
+    });
+
 
     res.status(200).json(messages);
   } catch (err) {

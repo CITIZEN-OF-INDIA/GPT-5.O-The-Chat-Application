@@ -27,6 +27,7 @@ interface AppDB extends DBSchema {
       "by-chat": string;
       "by-status": string;
       "by-createdAt": number;
+      "by-chat-createdAt": [string, number];
     };
   };
   meta: {
@@ -40,8 +41,8 @@ let dbPromise: Promise<IDBPDatabase<AppDB>> | null = null;
 
 export function getDB(): Promise<IDBPDatabase<AppDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<AppDB>("chat-app-db", 1, {
-      upgrade(database) {
+    dbPromise = openDB<AppDB>("chat-app-db", 2, {
+      upgrade(database, _oldVersion, _newVersion, transaction) {
         // Chats
         if (!database.objectStoreNames.contains("chats")) {
           database.createObjectStore("chats", { keyPath: "id" });
@@ -55,6 +56,12 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
           store.createIndex("by-chat", "chatId");
           store.createIndex("by-status", "status");
           store.createIndex("by-createdAt", "createdAt");
+          store.createIndex("by-chat-createdAt", ["chatId", "createdAt"]);
+        } else {
+          const store = transaction.objectStore("messages");
+          if (!store.indexNames.contains("by-chat-createdAt")) {
+            store.createIndex("by-chat-createdAt", ["chatId", "createdAt"]);
+          }
         }
 
         // Meta

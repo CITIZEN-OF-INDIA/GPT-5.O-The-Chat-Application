@@ -37,11 +37,18 @@ export const disconnectSocket = () => {
   }
 };
 
-export const getSocket = () => {
-  if (!socket || !socket.connected) {
+export const getSocket = (options?: { requireConnected?: boolean }) => {
+  if (!socket) {
     console.warn("⚠️ Socket not ready yet");
     return null;
   }
+
+  const requireConnected = options?.requireConnected ?? true;
+  if (requireConnected && !socket.connected) {
+    console.warn("⚠️ Socket not connected yet");
+    return null;
+  }
+
   return socket;
 };
 

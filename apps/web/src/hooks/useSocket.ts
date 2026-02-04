@@ -4,6 +4,7 @@ import { connectSocket } from "../services/socket.service";
 import { useMessageStore } from "../store/message.store";
 import { getUserIdFromToken } from "../utils/jwt";
 import { MessageStatus } from "../../../../packages/shared-types/message";
+import { updateMessageStatus as updateMessageStatusDB } from "../db/message.repo";
 import { normalizeMessage } from "../utils/normalizeMessage";
 
 export const useSocket = (token: string | null) => {
@@ -53,6 +54,7 @@ export const useSocket = (token: string | null) => {
     socket.on("message:status", ({ messageId, status }) => {
       console.log("📬 message:status", messageId, status);
       messageStore.updateStatus(messageId, status);
+      updateMessageStatusDB(messageId, status as MessageStatus);
     });
 
     return () => {
