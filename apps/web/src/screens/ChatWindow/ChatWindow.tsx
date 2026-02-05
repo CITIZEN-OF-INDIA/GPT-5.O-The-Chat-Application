@@ -13,6 +13,52 @@ import { getMessagesByChatPage, updateMessageStatus } from "../../db/message.rep
 import { normalizeChat } from "../../utils/normalizeChat";
 import { runSyncCycle } from "../../services/sync.service";
 import { seedLastSyncedAtFromChat } from "../../services/sync.service";
+import { joinChat,onTypingUpdate,offTypingUpdate, } from "../../services/socket.service";
+
+
+const TypingDots = () => {
+  const dotStyle = (delay: string) => ({
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    backgroundColor: "#667781",
+    animation: `typingBounce 1.4s ${delay} infinite ease-in-out`,
+  });
+
+  return (
+    <>
+      {/* Inline keyframes */}
+      <style>
+        {`
+          @keyframes typingBounce {
+            0%, 80%, 100% {
+              transform: translateY(0);
+              opacity: 0.3;
+            }
+            40% {
+              transform: translateY(-6px);
+              opacity: 1;
+            }
+          }
+        `}
+      </style>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          backgroundColor: "transparent",
+          alignItems: "center",
+        }}
+      >
+        <span style={dotStyle("0s")} />
+        <span style={dotStyle("0.2s")} />
+        <span style={dotStyle("0.4s")} />
+      </div>
+    </>
+  );
+};
+
 
 export default function ChatWindow() {
   const activeChatRaw = useChatStore((s) => s.activeChat);
@@ -34,10 +80,46 @@ export default function ChatWindow() {
     useMessageStore();
 
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const oldestLoadedRef = useRef<number | null>(null);
   const suppressNextAutoScrollRef = useRef(false);
   const allowLoadOlderRef = useRef(false);
+
+
+
+  useEffect(() => {
+  if (!activeChat || !myUserId) return;
+
+  // Join chat room for typing events
+  joinChat(activeChat.id);
+
+  const handleTyping = ({
+    chatId,
+    userId,
+    typing,
+  }: {
+    chatId: string;
+    userId: string;
+    typing: boolean;
+  }) => {
+    // Ignore self typing
+    if (userId === myUserId) return;
+    if (chatId !== activeChat.id) return;
+
+    setIsTyping(typing);
+  };
+
+  onTypingUpdate(handleTyping);
+
+  return () => {
+    offTypingUpdate(handleTyping);
+    setIsTyping(false);
+  };
+}, [activeChat?.id, myUserId]);
+
+
+
 
   // ✅ Load cached messages when chat opens
   useEffect(() => {
@@ -268,6 +350,26 @@ export default function ChatWindow() {
 
         <div ref={messagesEndRef} />
       </div>
+
+
+
+{/* TYPING INDICATOR */}
+{isTyping && (
+  <div
+    style={{
+      height: 28,
+      width: "100%",
+      paddingLeft: window.innerWidth < 600 ? 48 : 60,
+      display: "flex",
+      backgroundColor: "#00fec7",
+      alignItems: "center",
+    }}
+  >
+    <TypingDots />
+  </div>
+)}
+
+
 
       {/* INPUT */}
       <div

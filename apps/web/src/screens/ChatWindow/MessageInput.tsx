@@ -17,6 +17,11 @@ import type { ChatID } from "../../../../../packages/shared-types/chat";
 import type { UserID } from "../../../../../packages/shared-types/user";
 import EmojiPicker from "../../components/Emoji/EmojiPicker";
 import { useLayoutEffect } from "react";
+import {
+  emitTypingStart,
+  emitTypingStop,
+} from "../../services/socket.service";
+
 
 
 interface MessageInputProps {
@@ -34,7 +39,9 @@ export default function MessageInput({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cursorRef = useRef<number>(0);
-const restoreCursorRef = useRef<number | null>(null);
+  const restoreCursorRef = useRef<number | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
 
   const token = useAuthStore.getState().token;
   const senderId = token ? getUserIdFromToken(token) : null;
@@ -155,6 +162,11 @@ const AttachIcon = () => (
       );
     }
 
+      if (isTypingRef.current) {
+  emitTypingStop(chatId);
+  isTypingRef.current = false;
+}
+
     setText("");
   };
 
@@ -180,6 +192,8 @@ const AttachIcon = () => (
   restoreCursorRef.current = null;  // reset
 }, [text]);
 
+
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -187,6 +201,20 @@ const AttachIcon = () => (
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 12 * 22) + "px";
   }, [text]);
+
+
+
+
+  useEffect(() => {
+  return () => {
+    if (isTypingRef.current) {
+      emitTypingStop(chatId);
+    }
+  };
+}, [chatId]);
+
+
+
 useEffect(() => {
   const close = () => setShowEmojiPicker(false);
   window.addEventListener("click", close);
@@ -244,7 +272,7 @@ const handleEmojiSelect = (emoji: string) => {
         <EmojiIcon />
       </button>
 
-      {/* Attach Button (future use) */}
+      {/* Attach Button*/}
       <button
         type="button"
         style={{
@@ -279,7 +307,23 @@ const handleEmojiSelect = (emoji: string) => {
     <textarea
       ref={textareaRef}
       value={text}
-      onChange={(e) => setText(e.target.value)}
+    onChange={(e) => {
+      setText(e.target.value);
+
+      if (!isTypingRef.current) {
+        emitTypingStart(chatId);
+        isTypingRef.current = true;
+      }
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        emitTypingStop(chatId);
+        isTypingRef.current = false;
+      }, 300);
+    }}
       onKeyDown={onKeyDown}
       onSelect={(e) => {
     cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
