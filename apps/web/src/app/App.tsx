@@ -7,13 +7,16 @@ import { runSyncCycle } from "../services/sync.service";
 import { useChatStore } from "../store/chat.store";
 
 
-
 export default function App() {
   const restoreSession = useAuthStore((s) => s.restoreSession);
   const token = useAuthStore((s) => s.token);
   useSocket(token);
   const isOnline = useOnlineStatus();
   const hydrateChats = useChatStore((s) => s.hydrateFromCache);
+
+
+  
+
 
   useEffect(() => {
     hydrateChats(); // 🔥 loads chat list instantly

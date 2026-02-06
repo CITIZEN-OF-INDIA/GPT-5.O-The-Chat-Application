@@ -23,7 +23,7 @@ export const handleReceipts = (socket: Socket) => {
 
     if (!message || message.status !== "sent") return;
 
-    message.status = "delivered";
+    
     await message.save();
 
     console.log(

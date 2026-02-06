@@ -1,5 +1,6 @@
 // apps/web/src/services/socket.service.ts
 import { io, Socket } from "socket.io-client";
+import { registerPresenceListeners } from "./presence.service";
 
 let socket: Socket | null = null;
 
@@ -18,7 +19,12 @@ export const connectSocket = (token: string): Socket => {
   });
 
   socket.on("connect", () => {
+      if (!socket) return;
+
     console.log("⚡ Socket connected:", socket?.id);
+    registerPresenceListeners();
+    socket.emit("presence:online");
+
     
   });
 

@@ -8,6 +8,7 @@ import { Server as HttpServer } from "http";
 import { handleMessage } from "./websocket/message.handler";
 import { registerPresenceHandlers } from "./websocket/presence.handler";
 import { handleReceipts } from "./websocket/receipt.handler";
+import { presenceService } from "./modules/presence/presence.service";
 
 // 1️⃣ Create Express + HTTP server
 const { server } = createApp();
@@ -23,7 +24,7 @@ export const io = new SocketIOServer(server as HttpServer, {
   },
 });
 
-
+// 🔐 Socket authentication middleware
 io.use((socket, next) => {
   try {
     const token =
@@ -44,34 +45,82 @@ io.use((socket, next) => {
 });
 
 // 4️⃣ Socket lifecycle
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   console.log("🔌 Socket connected:", socket.id);
-    console.log("   userId    =", socket.data.userId);
+  console.log("   userId    =", socket.data.userId);
 
-    socket.join(socket.data.userId);
+  const userId = socket.data.userId;
 
-    console.log(
-    "🏠 JOINED ROOMS:",
-    Array.from(socket.rooms)
-  );
+  presenceService.setOnline(userId, socket.id);
 
-  /**
-   * IMPORTANT:
-   * socket.data.userId MUST be set by auth middleware
-   * (JWT handshake / auth phase)
-   */
+  socket.join(userId);
 
-  // Presence (online / typing / last seen)
+  // ======================================================
+  // 🧠 NEW (CRITICAL): SEND PRESENCE SNAPSHOT ON CONNECT
+  // ======================================================
+  // This fixes:
+  // - server restart
+  // - fresh login
+  // - "other user never came online" problem
+  // - missing lastSeen after crash
+  // ======================================================
+  try {
+    const snapshot = await presenceService.getPresenceSnapshot(userId);
+
+    // 🔁 Send snapshot ONLY to this socket
+    socket.emit("presence:snapshot", snapshot);
+      socket.broadcast.emit("user:online", { userId });
+
+  } catch (err) {
+    console.error("❌ Failed to send presence snapshot", err);
+  }
+
+  // ======================================================
+  // 🟢 FRONTEND EXPLICITLY SAYS: "I AM ONLINE"
+  // ======================================================
+  socket.on("presence:online", () => {
+    console.log("🟢 presence:online from", userId);
+
+    presenceService.setOnline(userId, socket.id);
+
+    // broadcast to everyone else
+    socket.broadcast.emit("user:online", { userId });
+  });
+
+  // ======================================================
+  // 🔴 FRONTEND EXPLICITLY SAYS: "I AM OFFLINE"
+  // (used on logout)
+  // ======================================================
+  socket.on("presence:offline", async () => {
+    console.log("🔴 presence:offline from", userId);
+
+    presenceService.setOffline(userId);
+    await presenceService.updateLastSeen(userId);
+
+    socket.broadcast.emit("user:offline", {
+      userId,
+      lastSeen: new Date(),
+    });
+  });
+
+  // register handlers
   registerPresenceHandlers(socket);
-
-  // Messages
   handleMessage(socket);
-
-  // Receipts (delivered / seen)
   handleReceipts(socket);
 
-  socket.on("disconnect", () => {
+  // ======================================================
+  // ❌ SOCKET DISCONNECT (TAB CLOSE / REFRESH / NETWORK)
+  // ======================================================
+  socket.on("disconnect", async () => {
     console.log("❌ Socket disconnected:", socket.id);
+
+    presenceService.setOffline(userId);
+    await presenceService.updateLastSeen(userId);
+
+    socket.broadcast.emit("user:offline", {
+      userId,
+      lastSeen: new Date(),
+    });
   });
 });
 

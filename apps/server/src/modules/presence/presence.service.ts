@@ -51,6 +51,22 @@ class PresenceService {
   getTypingUsers(chatId: string) {
     return Array.from(this.typingUsers.get(chatId) || []);
   }
+
+
+
+  async getPresenceSnapshot(excludeUserId?: string) {
+    const users = await User.find(
+      excludeUserId ? { _id: { $ne: excludeUserId } } : {},
+      { _id: 1, lastSeen: 1 }
+    );
+
+    return users.map((u) => ({
+      userId: u._id.toString(),
+      online: this.isOnline(u._id.toString()),
+      lastSeen: u.lastSeen ?? null,
+    }));
+  }
+
 }
 
 export const presenceService = new PresenceService();

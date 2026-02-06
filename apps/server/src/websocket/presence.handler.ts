@@ -4,16 +4,7 @@ import { presenceService } from "../modules/presence/presence.service";
 export const registerPresenceHandlers = (socket: Socket) => {
   const userId = socket.data.userId;
 
-  /* ───────── USER ONLINE ───────── */
-  presenceService.setOnline(userId, socket.id);
 
-  socket.broadcast.emit("user:online", { userId });
-
-  // Add this at the top, before typing handlers
-socket.on("join", ({ chatId }: { chatId: string }) => {
-  socket.join(chatId);
-  console.log(`Socket ${socket.id} joined chat ${chatId}`);
-});
 
   /* ───────── TYPING ───────── */
   socket.on("typing:start", ({ chatId }) => {
@@ -26,6 +17,8 @@ socket.on("join", ({ chatId }: { chatId: string }) => {
     });
   });
 
+
+
   socket.on("typing:stop", ({ chatId }) => {
     presenceService.stopTyping(chatId, userId);
 
@@ -35,6 +28,8 @@ socket.on("join", ({ chatId }: { chatId: string }) => {
       typing: false
     });
   });
+
+
 
   /* ───────── DISCONNECT ───────── */
   socket.on("disconnect", async () => {
