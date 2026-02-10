@@ -120,6 +120,9 @@ const AttachIcon = () => (
         await updateMessageStatusDB(messageId, MessageStatus.QUEUED);
       }, 1000);
 
+      
+
+
       socket.emit(
         "message:send",
         {
@@ -231,7 +234,21 @@ const handleEmojiSelect = (emoji: string) => {
 };
 
 
+const triggerTyping = () => {
+  if (!isTypingRef.current) {
+    emitTypingStart(chatId);
+    isTypingRef.current = true;
+  }
 
+  if (typingTimeoutRef.current) {
+    clearTimeout(typingTimeoutRef.current);
+  }
+
+  typingTimeoutRef.current = setTimeout(() => {
+    emitTypingStop(chatId);
+    isTypingRef.current = false;
+  }, 300);
+};
 
   return (
   <div
@@ -310,19 +327,8 @@ const handleEmojiSelect = (emoji: string) => {
     onChange={(e) => {
       setText(e.target.value);
 
-      if (!isTypingRef.current) {
-        emitTypingStart(chatId);
-        isTypingRef.current = true;
-      }
+          triggerTyping();
 
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-
-      typingTimeoutRef.current = setTimeout(() => {
-        emitTypingStop(chatId);
-        isTypingRef.current = false;
-      }, 300);
     }}
       onKeyDown={onKeyDown}
       onSelect={(e) => {

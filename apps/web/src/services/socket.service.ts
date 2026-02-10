@@ -61,27 +61,38 @@ export const getSocket = (options?: { requireConnected?: boolean }) => {
 // ───────── CHAT HELPERS ─────────
 
 export const joinChat = (chatId: string) => {
-  const socket = getSocket();
+  const socket = getSocket({ requireConnected: false });
   if (!socket) return;
 
-  socket.emit("join", { chatId });
+  if (socket.connected) {
+    socket.emit("join", { chatId });
+    return;
+  }
+
+  const handleConnect = () => {
+    socket.emit("join", { chatId });
+    socket.off("connect", handleConnect);
+  };
+
+  socket.on("connect", handleConnect);
 };
 
 // ───────── TYPING ─────────
 
 export const emitTypingStart = (chatId: string) => {
-  const socket = getSocket();
-  if (!socket) return;
+  const socket = getSocket({ requireConnected: false });
+  if (!socket || !socket.connected) return;
 
   socket.emit("typing:start", { chatId });
 };
 
 export const emitTypingStop = (chatId: string) => {
-  const socket = getSocket();
-  if (!socket) return;
+  const socket = getSocket({ requireConnected: false });
+  if (!socket || !socket.connected) return;
 
   socket.emit("typing:stop", { chatId });
 };
+
 
 export const onTypingUpdate = (
   handler: (data: {
