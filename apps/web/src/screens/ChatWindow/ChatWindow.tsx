@@ -56,6 +56,9 @@ const TypingDots = () => {
 
 export default function ChatWindow() {
   const activeChatRaw = useChatStore((s) => s.activeChat);
+  const pendingDeleteChat = useChatStore((s) => s.pendingDeleteChat);
+  const cancelDeleteChatRequest = useChatStore((s) => s.cancelDeleteChatRequest);
+  const deleteChatForMe = useChatStore((s) => s.deleteChatForMe);
   const token = useAuthStore((s) => s.token);
   const isUserAtBottomRef = useRef(true);
   const PAGE_SIZE = 50;
@@ -68,7 +71,14 @@ export default function ChatWindow() {
     return token ? getUserIdFromToken(token) : null;
   }, [token]);
 
-  const { messages: allMessages, addMessage, updateStatus, removeMessages, patchMessage } =
+  const {
+    messages: allMessages,
+    addMessage,
+    updateStatus,
+    removeMessages,
+    removeChatMessages,
+    patchMessage,
+  } =
     useMessageStore();
 
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -563,6 +573,13 @@ export default function ChatWindow() {
     }
   };
 
+  const handleDeleteChatForMe = async () => {
+    if (!pendingDeleteChat) return;
+    await deleteChatForMe(pendingDeleteChat.id);
+    removeChatMessages(pendingDeleteChat.id);
+    cancelDeleteChatRequest();
+  };
+
   return (
     <div
       style={{
@@ -828,6 +845,64 @@ export default function ChatWindow() {
                 }}
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteChat && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1250,
+          }}
+          onClick={cancelDeleteChatRequest}
+        >
+          <div
+            style={{ background: "#fff", borderRadius: 10, minWidth: 300, padding: 16 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: "#000" }}>
+              Delete chat?
+            </div>
+            <div style={{ fontSize: 14, color: "#444", marginBottom: 14 }}>
+              Do you really want to delete this chat from this device?
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={cancelDeleteChatRequest}
+                style={{
+                  flex: 1,
+                  padding: "9px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #d0d0d0",
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteChatForMe}
+                style={{
+                  flex: 1,
+                  padding: "9px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #e79b9b",
+                  background: "#fef0f0",
+                  color: "#cc2020",
+                  cursor: "pointer",
+                }}
+              >
+                Yes, delete
               </button>
             </div>
           </div>

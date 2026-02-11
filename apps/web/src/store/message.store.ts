@@ -8,6 +8,7 @@ interface MessageState {
   updateStatus: (id: string, status: MessageStatus) => void;
   patchMessage: (id: string, patch: Partial<DebugMessage>) => void;
   removeMessages: (ids: string[]) => void;
+  removeChatMessages: (chatId: string) => void;
   replaceMessage: (id: string, msg: DebugMessage) => void;
 }
 
@@ -61,6 +62,11 @@ export const useMessageStore = create<MessageState>((set) => ({
         ),
       };
     }),
+
+  removeChatMessages: (chatId) =>
+    set((state) => ({
+      messages: state.messages.filter((m) => m.chatId !== chatId),
+    })),
 
   replaceMessage: (clientId, serverMsg) =>
     set((state) => ({
