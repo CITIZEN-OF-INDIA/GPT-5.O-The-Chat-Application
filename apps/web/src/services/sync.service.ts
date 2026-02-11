@@ -52,7 +52,7 @@ export async function syncNewMessages(chatId: string) {
   if (!token) return;
 
   // 1️⃣ Find last non-optimistic message
-  const lastMessage = await db
+  const lastMessageActivity = await db
     .getAllFromIndex("messages", "by-chat", chatId)
     .then((msgs) =>
       msgs
@@ -61,11 +61,14 @@ export async function syncNewMessages(chatId: string) {
             m.status !== MessageStatus.QUEUED &&
             m.status !== MessageStatus.SENDING
         )
-        .sort((a, b) => b.createdAt - a.createdAt)[0]
+        .reduce((max, m) => {
+          const ts = Math.max(Number(m.createdAt) || 0, Number(m.updatedAt) || 0);
+          return ts > max ? ts : max;
+        }, 0)
     );
 
   const lastSynced = await getLastSyncedAt(chatId);
-  const lastMessageAt = Number(lastMessage?.createdAt);
+  const lastMessageAt = Number(lastMessageActivity);
   const lastSyncedAt = Number(lastSynced);
   const lastRelevantTimestamp = Math.max(
     Number.isFinite(lastMessageAt) ? lastMessageAt : 0,
@@ -143,7 +146,9 @@ export async function syncNewMessages(chatId: string) {
   toAdd.forEach((msg) => addMessage({ ...msg, __source: "sync" }));
 
   // 5?? Update sync timestamp
-  const newestTimestamp = Math.max(...toUpsert.map((m) => m.createdAt));
+  const newestTimestamp = Math.max(
+    ...toUpsert.map((m) => Math.max(Number(m.createdAt) || 0, Number(m.updatedAt) || 0))
+  );
   await setLastSyncedAt(chatId, newestTimestamp);
 }
 
@@ -187,6 +192,7 @@ export async function flushQueuedMessages() {
             receiverId: receiver.id,
             text: msg.text,
             clientId: msg.id,
+            ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
           },
           (res: { ok: boolean; message?: Message }) => resolve(res)
         );

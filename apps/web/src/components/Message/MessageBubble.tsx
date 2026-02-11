@@ -1,10 +1,22 @@
 import type { Message } from "../../../../../packages/shared-types/message";
 import MessageStatus from "./MessageStatus";
 import { useAuthStore } from "../../store/auth.store";
+import { useRef, type MouseEvent as ReactMouseEvent } from "react";
 
 interface MessageBubbleProps {
   message: Message;
   myUserId?: string | null;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  isFocused?: boolean;
+  replyToMessage?: Message | null;
+  onReplyPreviewClick?: (messageId: string) => void;
+  onEnterSelectionMode?: (m: Message) => void;
+  onToggleSelection?: (m: Message) => void;
+  onContextMenu?: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
+  onSelectionDragStart?: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
+  onSelectionDragEnter?: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
+  shouldSuppressSelectionClick?: () => boolean;
 }
 
 function formatIST(timestamp: number) {
@@ -22,8 +34,6 @@ function renderTextWithLinks(text: string) {
 
   return text.split(regex).map((part, index) => {
     if (!part) return null;
-
-    // 🌐 URL
     if (/^https?:\/\//i.test(part)) {
       return (
         <a
@@ -31,66 +41,56 @@ function renderTextWithLinks(text: string) {
           href={part}
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            textDecoration: "underline",
-            color: "#0645AD",
-            wordBreak: "break-word",
-          }}
+          style={{ textDecoration: "underline", color: "#0645AD" }}
         >
           {part}
         </a>
       );
     }
-
-    // 📧 Email
     if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(part)) {
       return (
         <a
           key={index}
           href={`mailto:${part}`}
-          style={{
-            textDecoration: "underline",
-            color: "#0645AD",
-          }}
+          style={{ textDecoration: "underline", color: "#0645AD" }}
         >
           {part}
         </a>
       );
     }
-
-    // 📞 Phone
     if (/^\+?\d[\d\s-]{7,}\d$/.test(part)) {
-      const cleanNumber = part.replace(/[^\d+]/g, "");
+      const clean = part.replace(/[^\d+]/g, "");
       return (
         <a
           key={index}
-          href={`tel:${cleanNumber}`}
-          style={{
-            textDecoration: "underline",
-            color: "#0645AD",
-          }}
+          href={`tel:${clean}`}
+          style={{ textDecoration: "underline", color: "#0645AD" }}
         >
           {part}
         </a>
       );
     }
-
     return <span key={index}>{part}</span>;
   });
 }
 
-
-
-
 export default function MessageBubble({
   message,
   myUserId,
+  selectionMode = false,
+  isSelected = false,
+  isFocused = false,
+  replyToMessage = null,
+  onReplyPreviewClick,
+  onEnterSelectionMode,
+  onToggleSelection,
+  onContextMenu,
+  onSelectionDragStart,
+  onSelectionDragEnter,
+  shouldSuppressSelectionClick,
 }: MessageBubbleProps) {
-  const token = useAuthStore((state) => state.token);
-  const timeIST = message.createdAt
-  ? formatIST(message.createdAt)
-  : "";
-
+  const token = useAuthStore((s) => s.token);
+  const timeIST = message.createdAt ? formatIST(message.createdAt) : "";
 
   let currentUserId = myUserId ?? null;
   if (!currentUserId && token) {
@@ -103,13 +103,50 @@ export default function MessageBubble({
   }
 
   const isOwn = message.senderId === currentUserId;
+  const isDeleted = Boolean(message.deleted);
+  const longPressTimer = useRef<number | null>(null);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchStart = () => {
+    if (!onEnterSelectionMode && !onToggleSelection) return;
+    longPressTimer.current = window.setTimeout(() => {
+      if (selectionMode) onToggleSelection?.(message);
+      else onEnterSelectionMode?.(message);
+    }, 450);
+  };
+
+  const handleClick = () => {
+    if (!selectionMode) return;
+    if (shouldSuppressSelectionClick?.()) return;
+    onToggleSelection?.(message);
+  };
 
   return (
     <div
+      onClick={handleClick}
+      onDoubleClick={() => onEnterSelectionMode?.(message)}
+      onContextMenu={(e) => onContextMenu?.(e, message)}
+      onMouseDown={(e) => onSelectionDragStart?.(e, message)}
+      onMouseEnter={(e) => onSelectionDragEnter?.(e, message)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={clearLongPressTimer}
+      onTouchCancel={clearLongPressTimer}
+      onTouchMove={clearLongPressTimer}
       style={{
+        width: "100%",
         display: "flex",
         justifyContent: isOwn ? "flex-end" : "flex-start",
-        padding: "4px 8px",
+        padding: "2px 0px",
+        borderRadius: 10,
+        background: isSelected ? "rgba(11, 92, 255, 0.12)" : "transparent",
+        boxShadow: isSelected ? "inset 0 0 0 1px rgba(11, 92, 255, 0.25)" : "none",
+        cursor: selectionMode ? "pointer" : "default",
       }}
     >
       <div
@@ -117,22 +154,66 @@ export default function MessageBubble({
           maxWidth: "70%",
           padding: "8px 12px",
           borderRadius: 12,
-          background: isOwn ? "#efecec" : "#eddcd3",
-          boxShadow: "1px 1px 7px rgb(0, 0, 0)",
-          color: "#000000", // ✅ BLACK TEXT
+          background: isSelected ? "#b7d7ff" : isOwn ? "#efecec" : "#eddcd3",
+          boxShadow: isFocused
+            ? "0 0 0 2px #ff9f1a"
+            : isSelected
+            ? "0 0 0 2px #0b5cff"
+            : "1px 1px 7px rgb(0,0,0)",
+          color: "#000000",
           font: "18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+          userSelect: "none",
         }}
       >
-        {message.text && (
+        {message.pinned && (
+          <div style={{ fontSize: 11, color: "#0b5cff", fontWeight: 700, marginBottom: 4 }}>
+            PINNED
+          </div>
+        )}
+
+        {message.replyTo && !isDeleted && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onReplyPreviewClick?.(message.replyTo!);
+            }}
+            style={{
+              borderLeft: "3px solid #0b5cff",
+              background: "rgba(11,92,255,0.08)",
+              borderRadius: 6,
+              padding: "6px 8px",
+              marginBottom: 6,
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#0b5cff" }}>
+              Reply
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {replyToMessage?.text ?? "Original message"}
+            </div>
+          </div>
+        )}
+
+        {(isDeleted || message.text) && (
           <div
             style={{
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
               overflowWrap: "anywhere",
               lineHeight: 1.4,
+              color: isDeleted ? "#8a8a8a" : "#000000",
+              fontStyle: isDeleted ? "italic" : "normal",
             }}
           >
-              {renderTextWithLinks(message.text)}
+            {isDeleted ? "This message was deleted" : renderTextWithLinks(message.text!)}
           </div>
         )}
 
@@ -140,12 +221,15 @@ export default function MessageBubble({
           style={{
             display: "flex",
             justifyContent: "flex-end",
-            fontSize: 11,
-            opacity: 0.7,
             marginTop: 4,
+            gap: 6,
+            alignItems: "center",
           }}
         >
-            <span style={{color: "#000000", fontSize: "15px"}}>{timeIST}</span>
+          {!isDeleted && message.edited && (
+            <span style={{ fontSize: 12, color: "#444" }}>(edited)</span>
+          )}
+          <span style={{ fontSize: 15, color: "#000" }}>{timeIST}</span>
           <MessageStatus status={message.status} isOwn={isOwn} />
         </div>
       </div>

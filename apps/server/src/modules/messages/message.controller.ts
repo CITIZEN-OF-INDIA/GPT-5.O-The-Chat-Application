@@ -1,6 +1,16 @@
 import { Request, Response } from "express";
 import { MessageService } from "./message.service";
 import { Chat } from "../../db/models/Chat.model";
+import { io } from "../../server";
+
+async function emitToChatParticipants(chatId: string, event: string, payload: any) {
+  const chat = await Chat.findById(chatId).select("participants");
+  if (!chat) return;
+
+  chat.participants.forEach((participantId) => {
+    io.to(participantId.toString()).emit(event, payload);
+  });
+}
 
 /**
  * Sends a message
@@ -9,7 +19,7 @@ import { Chat } from "../../db/models/Chat.model";
 export async function sendMessage(req: Request, res: Response) {
   try {
     const senderId = (req as any).userId;
-    const { chatId, receiverId, text, clientId } = req.body;
+    const { chatId, receiverId, text, clientId, replyTo } = req.body;
 
 if (!clientId) {
   return res.status(400).json({ error: "clientId is required" });
@@ -47,10 +57,11 @@ if (!clientId) {
       finalChatId,
       senderId,
       text,
-      req.body.clientId
+      req.body.clientId,
+      replyTo
     );
 
-    res.status(201).json(message);
+    res.status(201).json(MessageService.mapMessage(message));
   } catch (err) {
     console.error("Message send failed:", err);
     res.status(500).json({ error: "Failed to send message" });
@@ -74,7 +85,10 @@ export async function getMessages(req: Request, res: Response) {
 
     // Ensure user is a participant in this chat
     const chat = await Chat.findById(chatId);
-    if (!chat || !chat.participants.includes(userId)) {
+    const isParticipant = chat?.participants.some(
+      (p) => p.toString() === userId
+    );
+    if (!chat || !isParticipant) {
       return res.status(403).json({ error: "Not authorized for this chat" });
     }
 
@@ -91,12 +105,17 @@ export async function getMessages(req: Request, res: Response) {
     }
 
     // Fetch messages from MessageService
-    const messages = await MessageService.getMessages(chatId, effectiveSince);
+    const messages = await MessageService.getMessages(
+      chatId,
+      effectiveSince,
+      userId
+    );
 
-    // Update server-side cursor on successful sync
+    // Update server-side cursor on successful sync (use updatedAt for edit/pin changes)
     if (messages.length > 0) {
       const newest = messages.reduce((max, m) => {
-        const ts = m.createdAt instanceof Date ? m.createdAt.getTime() : 0;
+        const candidate = m.updatedAt ?? m.createdAt;
+        const ts = candidate instanceof Date ? candidate.getTime() : 0;
         return ts > max ? ts : max;
       }, 0);
       if (newest > 0) {
@@ -122,9 +141,103 @@ export async function getMessages(req: Request, res: Response) {
     });
 
 
-    res.status(200).json(messages);
+    res.status(200).json(messages.map((m) => MessageService.mapMessage(m)));
   } catch (err) {
     console.error("Failed to fetch messages:", err);
     res.status(500).json({ error: "Failed to fetch messages" });
+  }
+}
+
+export async function editMessage(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId;
+    const messageId = req.params.id;
+    const text = String(req.body?.text ?? "").trim();
+
+    if (!text) {
+      return res.status(400).json({ error: "Message text required" });
+    }
+
+    const updated = await MessageService.editMessage(messageId, userId, text);
+    if (!updated) {
+      return res.status(404).json({ error: "Message not found or not editable" });
+    }
+
+    const mapped = MessageService.mapMessage(updated);
+    await emitToChatParticipants(mapped.chatId, "message:updated", mapped);
+
+    return res.status(200).json(mapped);
+  } catch (err) {
+    console.error("editMessage failed:", err);
+    return res.status(500).json({ error: "Failed to edit message" });
+  }
+}
+
+export async function pinMessage(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId;
+    const messageId = req.params.id;
+    const pinned = Boolean(req.body?.pinned);
+
+    const updated = await MessageService.pinMessage(messageId, userId, pinned);
+    if (!updated) {
+      return res.status(404).json({ error: "Message not found or unauthorized" });
+    }
+
+    const mapped = MessageService.mapMessage(updated);
+    await emitToChatParticipants(mapped.chatId, "message:updated", mapped);
+
+    return res.status(200).json(mapped);
+  } catch (err) {
+    console.error("pinMessage failed:", err);
+    return res.status(500).json({ error: "Failed to pin/unpin message" });
+  }
+}
+
+export async function deleteMessagesForMe(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId;
+    const messageIds = Array.isArray(req.body?.messageIds)
+      ? req.body.messageIds.map(String)
+      : [];
+
+    if (!messageIds.length) {
+      return res.status(400).json({ error: "messageIds required" });
+    }
+
+    const deletedMessageIds = await MessageService.deleteForMe(messageIds, userId);
+
+    return res.status(200).json({ deletedMessageIds });
+  } catch (err) {
+    console.error("deleteMessagesForMe failed:", err);
+    return res.status(500).json({ error: "Failed to delete messages for me" });
+  }
+}
+
+export async function deleteMessagesForEveryone(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId;
+    const messageIds = Array.isArray(req.body?.messageIds)
+      ? req.body.messageIds.map(String)
+      : [];
+
+    if (!messageIds.length) {
+      return res.status(400).json({ error: "messageIds required" });
+    }
+
+    const { deletedMessageIds, deletedByChat } =
+      await MessageService.deleteForEveryone(messageIds, userId);
+
+    for (const [chatId, ids] of Object.entries(deletedByChat)) {
+      await emitToChatParticipants(chatId, "message:deleted", {
+        chatId,
+        messageIds: ids,
+      });
+    }
+
+    return res.status(200).json({ deletedMessageIds });
+  } catch (err) {
+    console.error("deleteMessagesForEveryone failed:", err);
+    return res.status(500).json({ error: "Failed to delete messages for everyone" });
   }
 }

@@ -7,7 +7,7 @@ export const handleMessage = (socket: Socket) => {
   const senderId = socket.data.userId;
 
   if (!senderId) {
-    console.error("❌ Socket missing userId");
+    console.error("Socket missing userId");
     return;
   }
 
@@ -20,11 +20,12 @@ export const handleMessage = (socket: Socket) => {
         chatId: string;
         receiverId: string;
         text: string;
-        clientId: string; // ✅ REQUIRED
+        clientId: string;
+        replyTo?: string;
       },
       ack?: (res: { ok: boolean; message?: any }) => void
     ) => {
-      const { chatId, receiverId, text, clientId } = data;
+      const { chatId, receiverId, text, clientId, replyTo } = data;
 
       if (!text || !clientId) {
         ack?.({ ok: false });
@@ -37,6 +38,7 @@ export const handleMessage = (socket: Socket) => {
           senderId,
           text,
           clientId,
+          replyTo,
         });
 
         if (!messageDoc) {
@@ -49,22 +51,22 @@ export const handleMessage = (socket: Socket) => {
           senderId: messageDoc.senderId.toString(),
           text: messageDoc.text,
           clientId: messageDoc.clientId,
+          replyTo: messageDoc.replyTo?.toString(),
+          edited: Boolean(messageDoc.edited),
+          pinned: Boolean(messageDoc.pinned),
           status: MessageStatus.SENT,
-          createdAt: messageDoc.createdAt,
+          createdAt: messageDoc.createdAt.getTime(),
+          updatedAt: messageDoc.updatedAt?.getTime?.(),
         };
 
-        // ACK
         ack?.({ ok: true, message });
-
-        // Emit to sender
         io.to(senderId).emit("message:new", message);
 
-        // Emit to receiver
         if (io.sockets.adapter.rooms.has(receiverId)) {
           io.to(receiverId).emit("message:new", message);
         }
       } catch (err) {
-        console.error("❌ Failed to handle message:", err);
+        console.error("Failed to handle message:", err);
         ack?.({ ok: false });
       }
     }

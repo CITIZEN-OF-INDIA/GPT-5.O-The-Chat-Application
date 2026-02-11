@@ -102,6 +102,33 @@ export async function deleteMessage(messageId: string) {
   await db.delete("messages", messageId);
 }
 
+export async function deleteMessages(messageIds: string[]) {
+  if (!messageIds.length) return;
+  const db = await getDB();
+  const tx = db.transaction("messages", "readwrite");
+  for (const id of messageIds) {
+    await tx.store.delete(id);
+  }
+  await tx.done;
+}
+
+export async function patchMessage(
+  messageId: string,
+  patch: Partial<Message>
+) {
+  const db = await getDB();
+  const existing = await db.get("messages", messageId);
+  if (!existing) return;
+
+  const updated = {
+    ...existing,
+    ...patch,
+    updatedAt: Date.now(),
+  };
+
+  await db.put("messages", updated);
+}
+
 
 /**
  * Clear messages of a chat (optional)

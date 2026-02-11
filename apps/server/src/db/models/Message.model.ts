@@ -5,10 +5,15 @@ export interface IMessage extends Document {
   senderId: mongoose.Types.ObjectId;
   text: string;
   clientId: string;
+  replyTo?: mongoose.Types.ObjectId | null;
+  edited: boolean;
+  pinned: boolean;
+  deletedFor: mongoose.Types.ObjectId[];
   // Stored delivery state (NOT queued)
   status: 'sent' | 'read';
 
   createdAt: Date;
+  updatedAt: Date;
 }
 
 const MessageSchema: Schema<IMessage> = new Schema({
@@ -32,6 +37,13 @@ const MessageSchema: Schema<IMessage> = new Schema({
   index: true,
 },
 
+  replyTo: {
+    type: Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null,
+    index: true,
+  },
+
 
   // TEXT message only (Phase 5)
   text: {
@@ -47,11 +59,25 @@ const MessageSchema: Schema<IMessage> = new Schema({
     index: true,
   },
 
-  createdAt: {
-    type: Date,
-    default: Date.now,
+  edited: {
+    type: Boolean,
+    default: false,
     index: true,
   },
+
+  pinned: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
+  deletedFor: {
+    type: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    default: [],
+    index: true,
+  },
+}, {
+  timestamps: { createdAt: true, updatedAt: true },
 });
 
 // Fast chat message lookup
@@ -70,11 +96,15 @@ export const saveMessageToDB = async (data: {
   senderId: string;
   text: string;
   clientId: string;
+  replyTo?: string;
 }) => {
   try {
     const message = new Message({
       ...data,
       status: 'sent',
+      edited: false,
+      pinned: false,
+      deletedFor: [],
     });
 
     return await message.save();
