@@ -1,16 +1,12 @@
-// apps/web/src/services/socket.service.ts
 import { io, Socket } from "socket.io-client";
-import { registerPresenceListeners } from "./presence.service";
+import { registerPresenceListeners, resetPresenceListeners } from "./presence.service";
 
 let socket: Socket | null = null;
 
 export const connectSocket = (token: string): Socket => {
   if (socket && socket.connected) {
-    console.log("♻️ Reusing existing socket:", socket.id);
     return socket;
   }
-
-  console.log("🔌 Creating new socket connection");
 
   socket = io(import.meta.env.VITE_WS_URL, {
     auth: { token },
@@ -19,80 +15,58 @@ export const connectSocket = (token: string): Socket => {
   });
 
   socket.on("connect", () => {
-      if (!socket) return;
-
-    console.log("⚡ Socket connected:", socket?.id);
+    if (!socket) return;
     registerPresenceListeners();
     socket.emit("presence:online");
-
-    
-  });
-
-  socket.on("disconnect", (reason) => {
-    console.log("❌ Socket disconnected:", reason);
   });
 
   return socket;
 };
 
 export const disconnectSocket = () => {
-  if (socket) {
-    console.log("🚪 Manually disconnecting socket");
-    socket.disconnect();
-    socket = null;
-  }
+  if (!socket) return;
+  resetPresenceListeners();
+  socket.disconnect();
+  socket = null;
 };
 
 export const getSocket = (options?: { requireConnected?: boolean }) => {
-  if (!socket) {
-    console.warn("⚠️ Socket not ready yet");
-    return null;
-  }
+  if (!socket) return null;
 
   const requireConnected = options?.requireConnected ?? true;
-  if (requireConnected && !socket.connected) {
-    console.warn("⚠️ Socket not connected yet");
-    return null;
-  }
+  if (requireConnected && !socket.connected) return null;
 
   return socket;
 };
 
-// ───────── CHAT HELPERS ─────────
-
 export const joinChat = (chatId: string) => {
-  const socket = getSocket({ requireConnected: false });
-  if (!socket) return;
+  const s = getSocket({ requireConnected: false });
+  if (!s) return;
 
-  if (socket.connected) {
-    socket.emit("join", { chatId });
+  if (s.connected) {
+    s.emit("join", { chatId });
     return;
   }
 
   const handleConnect = () => {
-    socket.emit("join", { chatId });
-    socket.off("connect", handleConnect);
+    s.emit("join", { chatId });
+    s.off("connect", handleConnect);
   };
 
-  socket.on("connect", handleConnect);
+  s.on("connect", handleConnect);
 };
 
-// ───────── TYPING ─────────
-
 export const emitTypingStart = (chatId: string) => {
-  const socket = getSocket({ requireConnected: false });
-  if (!socket || !socket.connected) return;
-
-  socket.emit("typing:start", { chatId });
+  const s = getSocket({ requireConnected: false });
+  if (!s || !s.connected) return;
+  s.emit("typing:start", { chatId });
 };
 
 export const emitTypingStop = (chatId: string) => {
-  const socket = getSocket({ requireConnected: false });
-  if (!socket || !socket.connected) return;
-
-  socket.emit("typing:stop", { chatId });
+  const s = getSocket({ requireConnected: false });
+  if (!s || !s.connected) return;
+  s.emit("typing:stop", { chatId });
 };
-
 
 export const onTypingUpdate = (
   handler: (data: {
@@ -101,10 +75,9 @@ export const onTypingUpdate = (
     typing: boolean;
   }) => void
 ) => {
-  const socket = getSocket({ requireConnected: false });
-  if (!socket) return;
-
-  socket.on("typing:update", handler);
+  const s = getSocket({ requireConnected: false });
+  if (!s) return;
+  s.on("typing:update", handler);
 };
 
 export const offTypingUpdate = (
@@ -114,10 +87,7 @@ export const offTypingUpdate = (
     typing: boolean;
   }) => void
 ) => {
-  const socket = getSocket({ requireConnected: false });
-  if (!socket) return;
-
-  socket.off("typing:update", handler);
+  const s = getSocket({ requireConnected: false });
+  if (!s) return;
+  s.off("typing:update", handler);
 };
-
-

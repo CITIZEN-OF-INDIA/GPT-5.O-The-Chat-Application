@@ -1,7 +1,7 @@
 import type { Message } from "../../../../../packages/shared-types/message";
 import MessageStatus from "./MessageStatus";
 import { useAuthStore } from "../../store/auth.store";
-import { useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 interface MessageBubbleProps {
   message: Message;
@@ -28,52 +28,6 @@ function formatIST(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
-function renderTextWithLinks(text: string) {
-  const regex =
-    /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s-]{7,}\d)/gi;
-
-  return text.split(regex).map((part, index) => {
-    if (!part) return null;
-    if (/^https?:\/\//i.test(part)) {
-      return (
-        <a
-          key={index}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ textDecoration: "underline", color: "#0645AD" }}
-        >
-          {part}
-        </a>
-      );
-    }
-    if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(part)) {
-      return (
-        <a
-          key={index}
-          href={`mailto:${part}`}
-          style={{ textDecoration: "underline", color: "#0645AD" }}
-        >
-          {part}
-        </a>
-      );
-    }
-    if (/^\+?\d[\d\s-]{7,}\d$/.test(part)) {
-      const clean = part.replace(/[^\d+]/g, "");
-      return (
-        <a
-          key={index}
-          href={`tel:${clean}`}
-          style={{ textDecoration: "underline", color: "#0645AD" }}
-        >
-          {part}
-        </a>
-      );
-    }
-    return <span key={index}>{part}</span>;
-  });
-}
-
 export default function MessageBubble({
   message,
   myUserId,
@@ -91,6 +45,8 @@ export default function MessageBubble({
 }: MessageBubbleProps) {
   const token = useAuthStore((s) => s.token);
   const timeIST = message.createdAt ? formatIST(message.createdAt) : "";
+
+  const [activatedLinks, setActivatedLinks] = useState<Set<number>>(new Set());
 
   let currentUserId = myUserId ?? null;
   if (!currentUserId && token) {
@@ -126,6 +82,70 @@ export default function MessageBubble({
     if (shouldSuppressSelectionClick?.()) return;
     onToggleSelection?.(message);
   };
+
+  function renderTextWithLinks(text: string) {
+    const regex =
+      /(https?:\/\/[^\s]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s-]{7,}\d)/gi;
+
+    return text.split(regex).map((part, index) => {
+      if (!part) return null;
+
+      const isActive = activatedLinks.has(index);
+      const color = isActive ? "#ff9f1a" : "#0645AD";
+
+      const activate = (e: ReactMouseEvent) => {
+        e.stopPropagation();
+        setActivatedLinks((prev) => new Set(prev).add(index));
+      };
+
+      if (/^https?:\/\//i.test(part)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={activate}
+            onContextMenu={activate}
+            style={{ textDecoration: "underline", color }}
+          >
+            {part}
+          </a>
+        );
+      }
+
+      if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(part)) {
+        return (
+          <a
+            key={index}
+            href={`mailto:${part}`}
+            onClick={activate}
+            onContextMenu={activate}
+            style={{ textDecoration: "underline", color }}
+          >
+            {part}
+          </a>
+        );
+      }
+
+      if (/^\+?\d[\d\s-]{7,}\d$/.test(part)) {
+        const clean = part.replace(/[^\d+]/g, "");
+        return (
+          <a
+            key={index}
+            href={`tel:${clean}`}
+            onClick={activate}
+            onContextMenu={activate}
+            style={{ textDecoration: "underline", color }}
+          >
+            {part}
+          </a>
+        );
+      }
+
+      return <span key={index}>{part}</span>;
+    });
+  }
 
   return (
     <div
@@ -165,43 +185,6 @@ export default function MessageBubble({
           userSelect: "none",
         }}
       >
-        {message.pinned && (
-          <div style={{ fontSize: 11, color: "#0b5cff", fontWeight: 700, marginBottom: 4 }}>
-            PINNED
-          </div>
-        )}
-
-        {message.replyTo && !isDeleted && (
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onReplyPreviewClick?.(message.replyTo!);
-            }}
-            style={{
-              borderLeft: "3px solid #0b5cff",
-              background: "rgba(11,92,255,0.08)",
-              borderRadius: 6,
-              padding: "6px 8px",
-              marginBottom: 6,
-              cursor: "pointer",
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#0b5cff" }}>
-              Reply
-            </div>
-            <div
-              style={{
-                fontSize: 13,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {replyToMessage?.text ?? "Original message"}
-            </div>
-          </div>
-        )}
-
         {(isDeleted || message.text) && (
           <div
             style={{

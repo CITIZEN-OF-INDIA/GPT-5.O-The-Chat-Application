@@ -29,13 +29,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
    * Load from IndexedDB (offline-safe)
    */
   hydrateFromCache: async () => {
-    set({ isLoading: true });
+    // Always start in "no chat selected" mode on app/session hydration.
+    set({ isLoading: true, activeChat: null });
 
     const token = useAuthStore.getState().token;
     const userId = token ? getUserIdFromToken(token) : null;
 
     if (!userId) {
-      set({ chats: [], isLoading: false });
+      set({ chats: [], activeChat: null, isLoading: false });
       return;
     }
 
@@ -46,7 +47,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       )
       .sort((a, b) => b.updatedAt - a.updatedAt);
 
-    set({ chats, isLoading: false });
+    set({ chats, activeChat: null, isLoading: false });
   },
 
   /**

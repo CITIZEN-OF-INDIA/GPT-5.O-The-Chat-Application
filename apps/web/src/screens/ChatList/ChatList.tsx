@@ -6,7 +6,7 @@ import { useAuthStore } from "../../store/auth.store";
 import { useChatStore } from "../../store/chat.store";
 import { createDirectChat } from "../../services/chat.service";
 import { normalizeChat } from "../../utils/normalizeChat";
-import { getUserIdFromToken } from "../../utils/jwt"; // ✅ FIX 1
+import { getUserIdFromToken } from "../../utils/jwt"; 
 
 export default function ChatList() {
   const navigate = useNavigate();
@@ -34,8 +34,10 @@ export default function ChatList() {
    * - Server sync if online
    */
   useEffect(() => {
+    // Enforce explicit chat selection after login/refresh/session switch.
+    setActiveChat(null);
     hydrate();
-  }, [hydrate]);
+  }, [hydrate, setActiveChat, token]);
 
   const handleSearchSubmit = async (
     e: React.KeyboardEvent<HTMLInputElement>

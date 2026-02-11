@@ -7,13 +7,11 @@ type PresenceUser = {
 
 type PresenceState = {
   users: Record<string, PresenceUser>;
-
-  // 👇 means: we have received ANY presence data
   ready: boolean;
-
   hydrate: (users: Array<{ userId: string; online: boolean; lastSeen?: string }>) => void;
   setOnline: (userId: string) => void;
   setOffline: (userId: string, lastSeen?: string) => void;
+  reset: () => void;
 };
 
 export const usePresenceStore = create<PresenceState>((set) => ({
@@ -33,7 +31,7 @@ export const usePresenceStore = create<PresenceState>((set) => ({
 
       return {
         users: next,
-        ready: true, // ✅ IMPORTANT
+        ready: true,
       };
     }),
 
@@ -43,7 +41,7 @@ export const usePresenceStore = create<PresenceState>((set) => ({
         ...state.users,
         [userId]: { online: true },
       },
-      ready: true, // ✅ IMPORTANT
+      ready: true,
     })),
 
   setOffline: (userId, lastSeen) =>
@@ -55,6 +53,12 @@ export const usePresenceStore = create<PresenceState>((set) => ({
           lastSeen,
         },
       },
-      ready: true, // ✅ IMPORTANT
+      ready: true,
     })),
+
+  reset: () =>
+    set({
+      users: {},
+      ready: false,
+    }),
 }));

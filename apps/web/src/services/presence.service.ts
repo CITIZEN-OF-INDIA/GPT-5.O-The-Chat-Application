@@ -1,35 +1,46 @@
-import { getSocket } from "./socket.service";
+import type { Socket } from "socket.io-client";
 import { usePresenceStore } from "../store/presence.store";
+import { getSocket } from "./socket.service";
 
-let registered = false; // prevent duplicate listeners
+let boundSocket: Socket | null = null;
+
+const onSnapshot = (users: Array<{ userId: string; online: boolean; lastSeen?: string }>) => {
+  usePresenceStore.getState().hydrate(users);
+};
+
+const onUserOnline = ({ userId }: { userId: string }) => {
+  usePresenceStore.getState().setOnline(userId);
+};
+
+const onUserOffline = ({ userId, lastSeen }: { userId: string; lastSeen?: string }) => {
+  usePresenceStore.getState().setOffline(userId, lastSeen);
+};
+
+const unbindPresenceListeners = (socket: Socket) => {
+  socket.off("presence:snapshot", onSnapshot);
+  socket.off("user:online", onUserOnline);
+  socket.off("user:offline", onUserOffline);
+};
 
 export const registerPresenceListeners = () => {
-  if (registered) return;
-
   const socket = getSocket();
   if (!socket) return;
 
-  registered = true;
+  if (boundSocket && boundSocket !== socket) {
+    unbindPresenceListeners(boundSocket);
+  }
 
-  const { setOnline, setOffline } = usePresenceStore.getState();
+  unbindPresenceListeners(socket);
+  socket.on("presence:snapshot", onSnapshot);
+  socket.on("user:online", onUserOnline);
+  socket.on("user:offline", onUserOffline);
 
-  console.log("✅ Registering presence listeners on socket:", socket.id);
+  boundSocket = socket;
+};
 
-
-  socket.on("presence:snapshot", (users) => {
-  console.log("📦 presence snapshot", users);
-
-  usePresenceStore.getState().hydrate(users);
-});
-
-
-  socket.on("user:online", ({ userId }) => {
-    console.log("🟢 RECEIVED user:online", userId);
-    setOnline(userId);
-  });
-
-  socket.on("user:offline", ({ userId, lastSeen }) => {
-    console.log("🔴 RECEIVED user:offline", userId, lastSeen);
-    setOffline(userId, lastSeen);
-  });
+export const resetPresenceListeners = () => {
+  if (boundSocket) {
+    unbindPresenceListeners(boundSocket);
+    boundSocket = null;
+  }
 };

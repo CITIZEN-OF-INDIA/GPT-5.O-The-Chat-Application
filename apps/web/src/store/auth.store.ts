@@ -1,12 +1,12 @@
 import { create } from "zustand";
 import { disconnectSocket } from "../services/socket.service";
+import { usePresenceStore } from "./presence.store";
 
 interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   restoreSession: () => void;
@@ -43,9 +43,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (!res.ok) {
         set({
           isLoading: false,
-          error: res.status === 401
-            ? "Invalid credentials"
-            : "Server error. Try again",
+          error: res.status === 401 ? "Invalid credentials" : "Server error. Try again",
         });
         return;
       }
@@ -60,7 +58,6 @@ export const useAuthStore = create<AuthState>((set) => ({
         error: null,
       });
     } catch {
-      // 🔥 OFFLINE / NETWORK ERROR
       set({
         isLoading: false,
         error: "No internet connection",
@@ -111,8 +108,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
-  disconnectSocket();  // ✅ disconnect old socket
-   localStorage.removeItem("token");
+    disconnectSocket();
+    usePresenceStore.getState().reset();
+    localStorage.removeItem("token");
     set({
       token: null,
       isAuthenticated: false,
