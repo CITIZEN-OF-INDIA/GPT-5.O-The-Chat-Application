@@ -38,29 +38,12 @@ const getDraftStorageKey = (userId: string, chatId: string) =>
 
 const EmojiIcon = () => (
   <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-    <circle cx="12" cy="12" r="10" stroke="#555" strokeWidth="1.5" />
-    <circle cx="9" cy="10" r="1" fill="#555" />
-    <circle cx="15" cy="10" r="1" fill="#555" />
+    <circle cx="12" cy="12" r="10" stroke="#333" strokeWidth="1.5" />
+    <circle cx="9" cy="10" r="1" fill="#333" />
+    <circle cx="15" cy="10" r="1" fill="#333" />
     <path
       d="M8 14c1.5 1.5 6.5 1.5 8 0"
-      stroke="#555"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
-const AttachIcon = () => (
-  <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-    <path
-      d="M10 13a5 5 0 0 1 0-7l2-2a5 5 0 0 1 7 7l-1 1"
-      stroke="#555"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-    />
-    <path
-      d="M14 11a5 5 0 0 1 0 7l-2 2a5 5 0 0 1-7-7l1-1"
-      stroke="#555"
+      stroke="#333"
       strokeWidth="1.5"
       strokeLinecap="round"
     />
@@ -94,18 +77,16 @@ export default function MessageInput({
 
   useEffect(() => {
     if (!chatId || !senderId || isEditing) return;
-    const savedDraft = localStorage.getItem(getDraftStorageKey(senderId, chatId)) ?? "";
+    const savedDraft =
+      localStorage.getItem(getDraftStorageKey(senderId, chatId)) ?? "";
     setText(savedDraft);
   }, [chatId, senderId, isEditing]);
 
   useEffect(() => {
     if (!chatId || !senderId || isEditing) return;
     const key = getDraftStorageKey(senderId, chatId);
-    if (text.length) {
-      localStorage.setItem(key, text);
-    } else {
-      localStorage.removeItem(key);
-    }
+    if (text.length) localStorage.setItem(key, text);
+    else localStorage.removeItem(key);
   }, [text, chatId, senderId, isEditing]);
 
   useEffect(() => {
@@ -165,7 +146,10 @@ export default function MessageInput({
       text,
       ...(replyTo ? { replyTo } : {}),
       createdAt: Date.now(),
-      status: socket && navigator.onLine ? MessageStatus.SENDING : MessageStatus.QUEUED,
+      status:
+        socket && navigator.onLine
+          ? MessageStatus.SENDING
+          : MessageStatus.QUEUED,
     };
 
     addMessage({ ...baseMessage, __source: "optimistic" });
@@ -184,7 +168,7 @@ export default function MessageInput({
         {
           chatId,
           receiverId,
-          text: text,
+          text,
           clientId: messageId,
           ...(replyTo ? { replyTo } : {}),
         },
@@ -230,10 +214,8 @@ export default function MessageInput({
 
   useLayoutEffect(() => {
     if (restoreCursorRef.current === null) return;
-
     const el = textareaRef.current;
     if (!el) return;
-
     const pos = restoreCursorRef.current;
     el.setSelectionRange(pos, pos);
     el.focus();
@@ -339,8 +321,6 @@ export default function MessageInput({
               fontSize: 18,
               lineHeight: 1,
             }}
-            aria-label="Cancel"
-            title="Cancel"
           >
             x
           </button>
@@ -375,25 +355,11 @@ export default function MessageInput({
               background: "transparent",
               border: "none",
               cursor: "pointer",
-              fontSize: 20,
-              opacity: 0.5,
+              opacity: 0.85,
             }}
             aria-label="Emoji"
           >
             <EmojiIcon />
-          </button>
-
-          <button
-            type="button"
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              opacity: 1,
-            }}
-            aria-label="Attach"
-          >
-            <AttachIcon />
           </button>
         </div>
 
