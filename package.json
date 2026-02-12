@@ -9,7 +9,8 @@
   "scripts": {
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:desktop": "npm run build --prefix apps/web && npm run pack:win --prefix electron"
   },
   "keywords": [],
   "author": "",
