@@ -2,12 +2,12 @@
   "name": "@gpt-5.o/server",
   "version": "1.0.0",
   "private": true,
-  "main": "dist/server.js",
-  "types": "dist/server.d.ts",
+  "main": "dist/apps/server/src/server.js",
+  "types": "dist/apps/server/src/server.d.ts",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/apps/server/src/server.js",
     "test:db": "tsx src/db/models/testfile.ts"
   },
   "dependencies": {
