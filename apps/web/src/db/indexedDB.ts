@@ -72,7 +72,6 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
     }).then((db) => {
       // 🔥 CRITICAL: if DB closes, reset promise
       db.onclose = () => {
-        console.warn("⚠️ IndexedDB connection closed. Reopening...");
         dbPromise = null;
       };
       return db;

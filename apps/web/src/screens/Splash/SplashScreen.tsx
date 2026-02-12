@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Common/Button";
 import { useAuthStore } from "../../store/auth.store";
+import LogoIcon from "./icon.webp"; // Adjust the path if needed
+
 
 export default function SplashScreen() {
   const navigate = useNavigate();
@@ -45,8 +47,15 @@ const handleHiddenEntry = () => {
           fontSize: 14,
         }}
       >
-        {/* put ur image here */}
-        LOGO  
+        <img
+          src={LogoIcon}
+          alt="Logo"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover", // cover the div
+          }}
+        />
       </div>
 
       {/* CENTER FAKE BUTTON */}

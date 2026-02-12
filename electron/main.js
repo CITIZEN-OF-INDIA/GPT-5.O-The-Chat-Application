@@ -1,10 +1,12 @@
-const { app, BrowserWindow, net, Menu } = require("electron");
+const { app, BrowserWindow, net, Menu, Tray, nativeImage } = require("electron");
+
 const path = require("path");
 const fs = require("fs");
 const Store = require("electron-store").default;
 
 const store = new Store();
 let mainWindow;
+let tray; // added tray variable
 
 const PROD_UI_URL = process.env.PROD_UI_URL || "";
 const VERSION_URL = process.env.VERSION_URL || "";
@@ -75,11 +77,43 @@ async function tryLoadRemote(label) {
   }
 }
 
+async function loadInitialPage() {
+  if (!mainWindow) return;
+
+  const online = await hasInternet();
+
+  let loadedSource = "bundled";
+
+  // Try remote first if online
+  if (online) {
+    const remoteLoaded = await tryLoadRemote("Tray click remote load");
+    if (remoteLoaded) loadedSource = "remote";
+  }
+
+  // Fallback cached remote
+  const hadRemoteBefore = store.get("last_remote_loaded_ok", false);
+  if (loadedSource !== "remote" && hadRemoteBefore) {
+    const cachedLoaded = await tryLoadRemote("Tray click cached remote");
+    if (cachedLoaded) loadedSource = "cached-remote";
+  }
+
+  // Last fallback: bundled
+  if (loadedSource === "bundled") {
+    await loadBundledUi();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+
 // ---------- WINDOW ----------
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false, // start hidden
+    skipTaskbar: true, // hides from taskbar
     webPreferences: {
       contextIsolation: true,
       sandbox: false,
@@ -89,8 +123,41 @@ async function createWindow() {
 
   Menu.setApplicationMenu(null);
 
-  // 🔍 DEBUG (SAFE)
+  // ---------- SYSTEM TRAY ----------
+  // ---------- SYSTEM TRAY ----------
+const trayIcon = nativeImage.createEmpty(); // default tiny icon
+tray = new Tray(trayIcon); 
+tray.setToolTip("My Chat App");
 
+tray.setContextMenu(
+  Menu.buildFromTemplate([
+    { label: "Show", click: () => mainWindow.show() },
+    { label: "Quit", click: () => { app.isQuiting = true; app.quit(); } },
+  ])
+);
+
+tray.on("click", async () => {
+  // mainWindow.destroy();  ❌ remove this
+  // await createWindow();  ❌ remove this
+  await loadInitialPage(); // ✅ just reloads the initial start page
+});
+
+
+
+  // Minimize or close to tray
+  mainWindow.on("minimize", (event) => {
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
+  mainWindow.on("close", (event) => {
+    if (!app.isQuiting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
+  // 🔍 DEBUG (SAFE)
   const online = await hasInternet();
 
   let loadedSource = "bundled";
@@ -137,6 +204,8 @@ async function createWindow() {
       console.log("Version check skipped");
     }
   });
+
+  mainWindow.show(); // show after setup
 }
 
 app.whenReady().then(createWindow);

@@ -7,9 +7,17 @@ import ChatWindow from "../screens/ChatWindow/ChatWindow";
 import Signup from "../screens/Signup/signup";
 
 // Fake / placeholder screen (always black)
-const FakeScreen = () => (
-  <div style={{ width: "100vw", height: "100vh", background: "black" }} />
+const ChatGPTScreen = () => (
+  <div style={{ width: "100vw", height: "100vh" }}>
+    <iframe
+      src="https://chat.openai.com"
+      style={{ width: "100%", height: "100%", border: "none" }}
+      title="ChatGPT"
+      sandbox="allow-scripts allow-same-origin allow-forms"
+    />
+  </div>
 );
+
 
 export default function AppRoutes() {
   const { isAuthenticated } = useAuthStore();
@@ -23,7 +31,7 @@ export default function AppRoutes() {
         <Route path="/" element={<SplashScreen />} />
 
         {/* Fake screen: ALWAYS false, no auth logic */}
-        <Route path="/fake" element={<FakeScreen />} />
+        <Route path="/fake" element={<ChatGPTScreen />} />
 
         {/* Signup */}
         <Route path="/Signup" element={<Signup />} />

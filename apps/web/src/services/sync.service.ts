@@ -157,10 +157,10 @@ export async function syncNewMessages(chatId: string) {
  * Send queued messages
  */
 export async function flushQueuedMessages() {
-  console.log("🔥 flushQueuedMessages CALLED");
+  
 
   const socket = getSocket();
-  console.log("🔥 socket exists?", !!socket, socket?.connected);
+  
   if (!socket) return;
 
   const queued = await getQueuedMessages();
@@ -229,11 +229,7 @@ export async function flushQueuedMessages() {
       .getState()
       .replaceMessage(msg.id, serverMsg);
 
-    console.log("📤 queued message sent & reconciled", {
-      chatId: msg.chatId,
-      to: receiver.id,
-      text: msg.text,
-    });
+    
   }
 }
 

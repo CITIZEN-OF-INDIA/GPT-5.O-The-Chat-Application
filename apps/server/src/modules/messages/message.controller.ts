@@ -133,12 +133,7 @@ export async function getMessages(req: Request, res: Response) {
       );
     }
 
-    console.log("getMessages", {
-      chatId,
-      since,
-      effectiveSince,
-      count: messages.length,
-    });
+    
 
 
     res.status(200).json(messages.map((m) => MessageService.mapMessage(m)));

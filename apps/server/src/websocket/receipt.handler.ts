@@ -11,25 +11,18 @@ export const handleReceipts = (socket: Socket) => {
 
   // ✅ DELIVERED
   socket.on("message:delivered", async ({ messageId }) => {
-    console.log("✅ DELIVERED EVENT");
-  console.log("   by user:", userId);
-  console.log("   message:", messageId);
     const message = await Message.findById(messageId);
     if (!message) {
-    console.log("❌ Message not found");
+   
     return;
   }
-    console.log("📌 Current status:", message.status);
 
     if (!message || message.status !== "sent") return;
 
     
     await message.save();
 
-    console.log(
-    "📤 EMIT STATUS → sender",
-    message.senderId.toString()
-  );
+    
   
     io.to(message.senderId.toString()).emit("message:status", {
       messageId,
