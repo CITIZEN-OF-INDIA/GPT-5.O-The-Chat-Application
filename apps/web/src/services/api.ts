@@ -1,8 +1,10 @@
+import { isEffectivelyOnline, resolveApiUrl } from "../utils/network";
+
 export async function apiFetch(
   url: string,
   options: RequestInit = {}
 ) {
-  if (!navigator.onLine) {
+  if (!isEffectivelyOnline()) {
     throw new Error("OFFLINE");
   }
 
@@ -13,7 +15,7 @@ export async function apiFetch(
     throw new Error("NO_AUTH");
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(resolveApiUrl(url), {
     ...options,
     cache: "no-store",
     headers: {

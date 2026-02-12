@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { disconnectSocket } from "../services/socket.service";
 import { usePresenceStore } from "./presence.store";
+import { resolveApiUrl } from "../utils/network";
 
 interface AuthState {
   token: string | null;
@@ -34,7 +35,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
 
     try {
-      const res = await fetch("/auth/login", {
+      const res = await fetch(resolveApiUrl("/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -69,7 +70,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
 
     try {
-      const res = await fetch("/auth/register", {
+      const res = await fetch(resolveApiUrl("/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),

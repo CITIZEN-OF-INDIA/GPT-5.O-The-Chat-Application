@@ -22,6 +22,7 @@ import {
   emitTypingStop,
 } from "../../services/socket.service";
 import { editMessageOnServer } from "../../services/message.service";
+import { isEffectivelyOnline } from "../../utils/network";
 
 interface MessageInputProps {
   chatId: ChatID;
@@ -147,7 +148,7 @@ export default function MessageInput({
       ...(replyTo ? { replyTo } : {}),
       createdAt: Date.now(),
       status:
-        socket && navigator.onLine
+        socket && isEffectivelyOnline()
           ? MessageStatus.SENDING
           : MessageStatus.QUEUED,
     };
@@ -155,7 +156,7 @@ export default function MessageInput({
     addMessage({ ...baseMessage, __source: "optimistic" });
     await addMessageToDB(baseMessage);
 
-    if (socket && navigator.onLine) {
+    if (socket && isEffectivelyOnline()) {
       let acked = false;
       const ackTimeout = setTimeout(async () => {
         if (acked) return;

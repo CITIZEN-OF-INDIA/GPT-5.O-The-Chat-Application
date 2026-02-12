@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+    base: "./", // 🔥 REQUIRED FOR ELECTRON
   server: {
     port: 5173, // or leave it out if you don't care
     proxy: {

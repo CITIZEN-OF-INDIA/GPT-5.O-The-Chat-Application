@@ -8,6 +8,7 @@ import { createDirectChat } from "../../services/chat.service";
 import { normalizeChat } from "../../utils/normalizeChat";
 import { getUserIdFromToken } from "../../utils/jwt";
 import type { ChatDB } from "../../db/indexedDB";
+import { isEffectivelyOnline } from "../../utils/network";
 
 type ChatContextMenuState = {
   chat: ChatDB;
@@ -96,7 +97,7 @@ export default function ChatList() {
       return;
     }
 
-    if (!navigator.onLine) {
+    if (!isEffectivelyOnline()) {
       setError("No such user exists");
       return;
     }
@@ -110,7 +111,7 @@ export default function ChatList() {
       setSearch("");
       setError(null);
     } catch {
-      setError(navigator.onLine ? "No such user exists" : "You're offline");
+      setError(isEffectivelyOnline() ? "No such user exists" : "You're offline");
     }
   };
 

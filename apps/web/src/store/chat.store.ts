@@ -12,6 +12,7 @@ import { fetchChats } from "../services/chat.service";
 import { normalizeChat } from "../utils/normalizeChat";
 import { useAuthStore } from "../store/auth.store";
 import { getUserIdFromToken } from "../utils/jwt";
+import { isEffectivelyOnline } from "../utils/network";
 
 interface ChatState {
   chats: ChatDB[];
@@ -99,7 +100,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   hydrate: async () => {
     await get().hydrateFromCache();
-    if (navigator.onLine) {
+    if (isEffectivelyOnline()) {
       await get().syncFromServer();
     }
   },

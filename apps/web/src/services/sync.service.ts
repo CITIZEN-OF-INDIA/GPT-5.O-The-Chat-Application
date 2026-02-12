@@ -15,6 +15,7 @@ import { useChatStore } from "../store/chat.store";
 import { useAuthStore } from "../store/auth.store";
 import { normalizeMessage } from "../utils/normalizeMessage";
 import { getUserIdFromToken } from "../utils/jwt";
+import { resolveApiUrl } from "../utils/network";
 
 /**
  * Get the last synced timestamp for a chat
@@ -77,7 +78,7 @@ export async function syncNewMessages(chatId: string) {
 
   // 2️⃣ Fetch newer messages
   const res = await fetch(
-    `/api/messages?chatId=${chatId}&since=${lastRelevantTimestamp}`,
+    resolveApiUrl(`/api/messages?chatId=${chatId}&since=${lastRelevantTimestamp}`),
     {
       headers: { Authorization: `Bearer ${token}` },
     }

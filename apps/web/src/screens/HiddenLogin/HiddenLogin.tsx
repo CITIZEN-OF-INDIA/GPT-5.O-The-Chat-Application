@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Common/Button";
 import { useAuthStore } from "../../store/auth.store";
+import { isEffectivelyOnline } from "../../utils/network";
 
 export default function HiddenLogin() {
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function HiddenLogin() {
     }
 
     // 🛑 HARD STOP — no proxy / backend hit
-    if (!navigator.onLine) {
+    if (!isEffectivelyOnline()) {
       setError(" 🛑 No internet connection");
       return;
     }

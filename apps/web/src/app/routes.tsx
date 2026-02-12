@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "../store/auth.store";
 import SplashScreen from "../screens/Splash/SplashScreen";
 import HiddenLogin from "../screens/HiddenLogin/HiddenLogin";
@@ -13,9 +13,11 @@ const FakeScreen = () => (
 
 export default function AppRoutes() {
   const { isAuthenticated } = useAuthStore();
+  const isDesktop = typeof window !== "undefined" && Boolean((window as any).desktop?.isDesktop);
+  const Router = isDesktop ? HashRouter : BrowserRouter;
 
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         {/* Splash always waits for user action */}
         <Route path="/" element={<SplashScreen />} />
@@ -48,6 +50,6 @@ export default function AppRoutes() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }

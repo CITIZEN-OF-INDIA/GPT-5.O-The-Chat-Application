@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Common/Button";
 import { useAuthStore } from "../../store/auth.store";
+import { isEffectivelyOnline } from "../../utils/network";
 
 export default function Signup() {
   const [username, setUsername] = useState("");
@@ -24,7 +25,7 @@ export default function Signup() {
   }
 
   // 🛑 HARD STOP — do not hit proxy / backend
-  if (!navigator.onLine) {
+  if (!isEffectivelyOnline()) {
     setStoreError(" 🛑 No internet connection");
     return;
   }

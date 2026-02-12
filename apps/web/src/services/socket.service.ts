@@ -1,5 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import { registerPresenceListeners, resetPresenceListeners } from "./presence.service";
+import { resolveSocketUrl } from "../utils/network";
 
 let socket: Socket | null = null;
 
@@ -8,7 +9,7 @@ export const connectSocket = (token: string): Socket => {
     return socket;
   }
 
-  socket = io(import.meta.env.VITE_WS_URL, {
+  socket = io(resolveSocketUrl(), {
     auth: { token },
     transports: ["websocket"],
     reconnection: true,
