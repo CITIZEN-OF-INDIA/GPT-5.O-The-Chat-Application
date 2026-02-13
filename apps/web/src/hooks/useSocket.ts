@@ -4,7 +4,9 @@ import { useMessageStore } from "../store/message.store";
 import { getUserIdFromToken } from "../utils/jwt";
 import { MessageStatus } from "../../../../packages/shared-types/message";
 import {
+  deleteMessage as deleteMessageFromDB,
   patchMessage as patchMessageInDB,
+  upsertMessages,
   updateMessageStatus as updateMessageStatusDB,
 } from "../db/message.repo";
 import { normalizeMessage } from "../utils/normalizeMessage";
@@ -18,21 +20,31 @@ export const useSocket = (token: string | null) => {
     const socket = connectSocket(token);
     const myUserId = getUserIdFromToken(token);
 
-    socket.on("message:new", (raw) => {
-      const msg = normalizeMessage(raw);
-      const store = useMessageStore.getState();
+    socket.on("message:new", async (raw) => {
+      try {
+        const msg = normalizeMessage(raw);
+        const store = useMessageStore.getState();
 
-      if (msg.senderId === myUserId && msg.clientId) {
-        store.replaceMessage(msg.clientId, msg);
-        return;
-      }
+        if (msg.senderId === myUserId && msg.clientId) {
+          store.replaceMessage(msg.clientId, msg);
+          if (msg.clientId !== msg.id) {
+            await deleteMessageFromDB(msg.clientId);
+          }
+          await upsertMessages([msg]);
+          return;
+        }
 
-      if (
-        !store.messages.some(
-          (m) => m.id === msg.id || (msg.clientId && m.id === msg.clientId)
-        )
-      ) {
-        store.addMessage(msg);
+        if (
+          !store.messages.some(
+            (m) => m.id === msg.id || (msg.clientId && m.id === msg.clientId)
+          )
+        ) {
+          store.addMessage(msg);
+        }
+
+        await upsertMessages([msg]);
+      } catch (err) {
+        console.error("message:new handling failed", err);
       }
     });
 

@@ -60,6 +60,8 @@ export default function MessageBubble({
 
   const isOwn = message.senderId === currentUserId;
   const isDeleted = Boolean(message.deleted);
+  const hasReply = Boolean(message.replyTo);
+  const canOpenReplyPreview = Boolean(message.replyTo && replyToMessage);
   const longPressTimer = useRef<number | null>(null);
 
   const clearLongPressTimer = () => {
@@ -185,6 +187,48 @@ export default function MessageBubble({
           userSelect: "none",
         }}
       >
+        {hasReply && (
+          <button
+            type="button"
+            onClick={() => {
+              if (message.replyTo && canOpenReplyPreview) {
+                onReplyPreviewClick?.(message.replyTo);
+              }
+            }}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              marginBottom: 8,
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "none",
+              background: "rgba(11, 92, 255, 0.12)",
+              borderLeft: "3px solid #0b5cff",
+              cursor: canOpenReplyPreview ? "pointer" : "default",
+              opacity: canOpenReplyPreview ? 1 : 0.75,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#0b5cff", marginBottom: 2 }}>
+              {replyToMessage
+                ? replyToMessage.senderId === currentUserId
+                  ? "You"
+                  : "Reply"
+                : "Original message"}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "#222",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {replyToMessage?.text ?? "Message unavailable"}
+            </div>
+          </button>
+        )}
+
         {(isDeleted || message.text) && (
           <div
             style={{

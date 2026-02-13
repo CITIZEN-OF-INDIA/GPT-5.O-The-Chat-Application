@@ -44,7 +44,15 @@ if (raw.text !== undefined) {
 }
  
 if (raw.media !== undefined) message.media = raw.media;
-if (raw.replyTo !== undefined) message.replyTo = String(raw.replyTo);
+if (raw.replyTo !== undefined && raw.replyTo !== null) {
+  const replyId =
+    typeof raw.replyTo === "object"
+      ? raw.replyTo.id ?? raw.replyTo._id
+      : raw.replyTo;
+  if (replyId !== undefined && replyId !== null) {
+    message.replyTo = String(replyId);
+  }
+}
 if (raw.clientId !== undefined) {
   message.clientId = String(raw.clientId);
 }

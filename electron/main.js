@@ -131,15 +131,13 @@ tray.setToolTip("My Chat App");
 
 tray.setContextMenu(
   Menu.buildFromTemplate([
-    { label: "Show", click: () => mainWindow.show() },
+    { label: "Show", click: async () => { await loadInitialPage(); } },
     { label: "Quit", click: () => { app.isQuiting = true; app.quit(); } },
   ])
 );
 
 tray.on("click", async () => {
-  // mainWindow.destroy();  ❌ remove this
-  // await createWindow();  ❌ remove this
-  await loadInitialPage(); // ✅ just reloads the initial start page
+  await loadInitialPage();
 });
 
 
@@ -150,13 +148,7 @@ tray.on("click", async () => {
     mainWindow.hide();
   });
 
-  mainWindow.on("close", (event) => {
-    if (!app.isQuiting) {
-      event.preventDefault();
-      mainWindow.hide();
-    }
-  });
-
+  
   // 🔍 DEBUG (SAFE)
   const online = await hasInternet();
 
@@ -213,3 +205,4 @@ app.whenReady().then(createWindow);
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+

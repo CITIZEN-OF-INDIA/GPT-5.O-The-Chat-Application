@@ -372,7 +372,6 @@ export default function MessageInput({
               left: 0,
               zIndex: 10,
             }}
-            onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => e.stopPropagation()}
           >
             <EmojiPicker onSelect={handleEmojiSelect} />
