@@ -26,6 +26,7 @@ export default function ChatList() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ChatContextMenuState | null>(null);
+  const [isCompactMobile, setIsCompactMobile] = useState(() => window.innerWidth <= 768);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const myUserId = getUserIdFromToken(token);
@@ -75,6 +76,12 @@ export default function ChatList() {
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    const onResize = () => setIsCompactMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const handleSearchSubmit = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
@@ -144,6 +151,8 @@ export default function ChatList() {
     });
   }, [activeChat?.id, chats, myUserId, setActiveChat]);
 
+  const showChatWindowOnMobile = isCompactMobile && Boolean(activeChat);
+
   return (
     <div
       style={{
@@ -156,13 +165,14 @@ export default function ChatList() {
     >
       <div
         style={{
-          width: 360,
+          width: isCompactMobile ? "100%" : 360,
           display: "flex",
           flexDirection: "column",
           borderRight: "1px solid #202c33",
           backgroundColor: "#cfe9ff",
           color: "#000000",
           flexShrink: 0,
+          ...(showChatWindowOnMobile ? { display: "none" } : {}),
         }}
       >
         <div
@@ -295,7 +305,7 @@ export default function ChatList() {
         </div>
       )}
 
-      <ChatWindow />
+      {(!isCompactMobile || showChatWindowOnMobile) && <ChatWindow />}
     </div>
   );
 }

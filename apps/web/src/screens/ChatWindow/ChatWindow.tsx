@@ -136,10 +136,7 @@ export default function ChatWindow() {
   const dragMovedRef = useRef(false);
   const dragLastKeyRef = useRef<string | null>(null);
   const suppressSelectionClickRef = useRef(false);
-  const dragSelectionActionRef = useRef<"add" | "remove">("add");
   const isLeftMouseDownRef = useRef(false);
-  const lastScrollTopRef = useRef(0);
-  const dragScrollDirectionRef = useRef<1 | -1 | 0>(0);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -164,22 +161,11 @@ export default function ChatWindow() {
     });
   };
 
-  const addSelection = (msg: Message) => {
-    const key = getSelectionKey(msg);
-    setSelectedIds((prev) => {
-      if (prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
-  };
-
   const applySelectionDuringDrag = (msg: Message) => {
     const key = getSelectionKey(msg);
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (dragSelectionActionRef.current === "remove") next.delete(key);
-      else next.add(key);
+      next.add(key);
       if (next.size === 0) setSelectionMode(false);
       return next;
     });
@@ -187,24 +173,10 @@ export default function ChatWindow() {
 
   const handleSelectionDragStart = (e: ReactMouseEvent<HTMLDivElement>, msg: Message) => {
     if (e.button !== 0) return;
+    if (!selectionMode) return;
     const key = getSelectionKey(msg);
-
-    if (!selectionMode) {
-      setSelectionMode(true);
-      setSelectedIds(new Set([key]));
-      dragSelectionActionRef.current = "add";
-      dragSelectingRef.current = true;
-      dragMovedRef.current = false;
-      dragLastKeyRef.current = key;
-      suppressSelectionClickRef.current = true;
-      return;
-    }
-
-    const wasSelected = selectedIds.has(key);
-    dragSelectionActionRef.current = wasSelected ? "remove" : "add";
-
-    if (!wasSelected) {
-      addSelection(msg);
+    if (!selectedIds.has(key)) {
+      applySelectionDuringDrag(msg);
       suppressSelectionClickRef.current = true;
     }
 
@@ -252,8 +224,6 @@ export default function ChatWindow() {
       dragSelectingRef.current = false;
       dragMovedRef.current = false;
       dragLastKeyRef.current = null;
-      dragSelectionActionRef.current = "add";
-      dragScrollDirectionRef.current = 0;
     };
     window.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mousemove", onMouseMove);
@@ -852,8 +822,8 @@ export default function ChatWindow() {
     setSearchActiveIndex((prev) => (prev + direction + searchMatchedMessageIds.length) % searchMatchedMessageIds.length);
   };
 
-  const applySelectionAtPointer = () => {
-    const pointer = lastPointerRef.current;
+  const applySelectionAtPointer = (pointerOverride?: { x: number; y: number }) => {
+    const pointer = pointerOverride ?? lastPointerRef.current;
     if (!pointer) return;
     const target = document.elementFromPoint(pointer.x, pointer.y) as HTMLElement | null;
     const keyedContainer = target?.closest("[data-selection-key]") as HTMLElement | null;
@@ -957,19 +927,8 @@ export default function ChatWindow() {
           const el = e.currentTarget;
           const threshold = 40;
           const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-          const delta = el.scrollTop - lastScrollTopRef.current;
-          const scrollDirection = delta === 0 ? 0 : delta > 0 ? 1 : -1;
-          lastScrollTopRef.current = el.scrollTop;
           isUserAtBottomRef.current = atBottom;
-          if (selectionMode && dragSelectingRef.current && scrollDirection !== 0) {
-            if (dragScrollDirectionRef.current === 0) {
-              dragScrollDirectionRef.current = scrollDirection;
-            } else if (dragScrollDirectionRef.current !== scrollDirection) {
-              dragSelectionActionRef.current =
-                dragSelectionActionRef.current === "add" ? "remove" : "add";
-              dragLastKeyRef.current = null;
-              dragScrollDirectionRef.current = scrollDirection;
-            }
+          if (selectionMode && dragSelectingRef.current && isLeftMouseDownRef.current) {
             applySelectionAtPointer();
           }
           if (allowLoadOlderRef.current && el.scrollTop < 60) {

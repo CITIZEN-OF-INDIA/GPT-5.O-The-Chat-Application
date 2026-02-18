@@ -71,9 +71,11 @@ export default function ChatHeader({
   onSearchNext,
 }: ChatHeaderProps) {
   const activeChatRaw = useChatStore((s) => s.activeChat);
+  const setActiveChat = useChatStore((s) => s.setActiveChat);
   const token = useAuthStore((s) => s.token);
   const presenceReady = usePresenceStore((s) => s.ready);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isCompactMobile, setIsCompactMobile] = useState(() => window.innerWidth <= 768);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const activeChat = activeChatRaw ? normalizeChat(activeChatRaw) : null;
@@ -102,6 +104,12 @@ export default function ChatHeader({
   useEffect(() => {
     if (!selectionMode) setMenuOpen(false);
   }, [selectionMode]);
+
+  useEffect(() => {
+    const onResize = () => setIsCompactMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   if (selectionMode) {
     const isSingle = selectedCount === 1;
@@ -256,6 +264,25 @@ export default function ChatHeader({
         position: "relative",
       }}
     >
+      {isCompactMobile && (
+        <button
+          type="button"
+          onClick={() => setActiveChat(null)}
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: 22,
+            lineHeight: 1,
+            marginRight: 10,
+            padding: 0,
+          }}
+          aria-label="Back to chats"
+          title="Back to chats"
+        >
+          {"\u2039"}
+        </button>
+      )}
       <div
         style={{
           fontSize: 24,
