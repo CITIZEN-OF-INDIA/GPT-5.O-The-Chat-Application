@@ -12,6 +12,14 @@ import { presenceService } from "./modules/presence/presence.service";
 
 // 1️⃣ Create Express + HTTP server
 const { server } = createApp();
+const allowedSocketOrigins = [
+  env.CLIENT_URL.replace(/\/+$/, ""),
+  "null",
+  "http://localhost",
+  "https://localhost",
+  "capacitor://localhost",
+  "ionic://localhost",
+];
 
 // 2️⃣ Connect MongoDB (GLOBAL)
 connectDB();
@@ -19,7 +27,7 @@ connectDB();
 // 3️⃣ Initialize Socket.IO
 export const io = new SocketIOServer(server as HttpServer, {
   cors: {
-    origin: [env.CLIENT_URL, "null"],
+    origin: allowedSocketOrigins,
     credentials: true,
   },
 });
