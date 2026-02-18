@@ -5,39 +5,9 @@ import http from 'http'
 import chatRoutes from "./modules/chats";
 import messageRoutes from "./modules/messages";
 import usersRoutes from "./modules/users";
-import { env } from "./config/env";
 
 export function createApp() {
   const app = express()
-
-  const allowedOrigins = new Set([
-    env.CLIENT_URL.replace(/\/+$/, ""),
-    "http://localhost",
-    "https://localhost",
-    "capacitor://localhost",
-    "ionic://localhost",
-  ]);
-
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-
-    if (!origin || origin === "null" || allowedOrigins.has(origin)) {
-      if (origin) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-      }
-      res.setHeader("Vary", "Origin");
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-
-      if (req.method === "OPTIONS") {
-        res.status(204).end();
-        return;
-      }
-    }
-
-    next();
-  });
 
   app.use(express.json())
 
