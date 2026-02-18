@@ -4,19 +4,32 @@ import { getUserIdFromToken } from "../../utils/jwt";
 import { normalizeChat } from "../../utils/normalizeChat";
 import { useUserPresence } from "../../hooks/useUserPresence";
 import { usePresenceStore } from "../../store/presence.store";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Message } from "../../../../../packages/shared-types/message";
 
 interface ChatHeaderProps {
   selectionMode?: boolean;
   selectedCount?: number;
   singleSelectedMessage?: Message | null;
+  canCopySelected?: boolean;
+  canReplySelected?: boolean;
+  canEditSelected?: boolean;
+  canPinSelected?: boolean;
+  canDeleteSelected?: boolean;
   onClearSelection?: () => void;
   onCopySelected?: () => void;
   onReplySelected?: () => void;
   onEditSelected?: () => void;
   onPinSelected?: () => void;
   onDeleteSelected?: () => void;
+  searchOpen?: boolean;
+  searchQuery?: string;
+  searchMatchCount?: number;
+  searchCurrentIndex?: number;
+  onToggleSearch?: () => void;
+  onSearchQueryChange?: (query: string) => void;
+  onSearchPrev?: () => void;
+  onSearchNext?: () => void;
 }
 
 function formatLastSeen(lastSeen?: string) {
@@ -37,12 +50,25 @@ export default function ChatHeader({
   selectionMode = false,
   selectedCount = 0,
   singleSelectedMessage = null,
+  canCopySelected = false,
+  canReplySelected = false,
+  canEditSelected = false,
+  canPinSelected = false,
+  canDeleteSelected = false,
   onClearSelection,
   onCopySelected,
   onReplySelected,
   onEditSelected,
   onPinSelected,
   onDeleteSelected,
+  searchOpen = false,
+  searchQuery = "",
+  searchMatchCount = 0,
+  searchCurrentIndex = 0,
+  onToggleSearch,
+  onSearchQueryChange,
+  onSearchPrev,
+  onSearchNext,
 }: ChatHeaderProps) {
   const activeChatRaw = useChatStore((s) => s.activeChat);
   const token = useAuthStore((s) => s.token);
@@ -55,7 +81,9 @@ export default function ChatHeader({
 
   const otherUser =
     activeChat && myUserId
-      ? activeChat.participants.find((p: any) => p?.id && p.id !== myUserId)
+      ? activeChat.participants.find(
+          (p: { id?: string; username?: string } | null | undefined) => p?.id && p.id !== myUserId
+        )
       : undefined;
 
   const presence = useUserPresence(otherUser?.id);
@@ -78,10 +106,6 @@ export default function ChatHeader({
   if (selectionMode) {
     const isSingle = selectedCount === 1;
     const pinLabel = singleSelectedMessage?.pinned ? "Unpin" : "Pin";
-    const canEditSelected =
-      isSingle &&
-      Boolean(singleSelectedMessage) &&
-      singleSelectedMessage?.senderId === myUserId;
 
     return (
       <div
@@ -149,6 +173,7 @@ export default function ChatHeader({
           >
             <MenuItem
               label="Copy"
+              disabled={!canCopySelected}
               onClick={() => {
                 onCopySelected?.();
                 setMenuOpen(false);
@@ -158,6 +183,7 @@ export default function ChatHeader({
             {isSingle && (
               <MenuItem
                 label="Reply"
+                disabled={!canReplySelected}
                 onClick={() => {
                   onReplySelected?.();
                   setMenuOpen(false);
@@ -165,9 +191,10 @@ export default function ChatHeader({
               />
             )}
 
-            {canEditSelected && (
+            {isSingle && (
               <MenuItem
                 label="Edit"
+                disabled={!canEditSelected}
                 onClick={() => {
                   onEditSelected?.();
                   setMenuOpen(false);
@@ -178,6 +205,7 @@ export default function ChatHeader({
             {isSingle && (
               <MenuItem
                 label={pinLabel}
+                disabled={!canPinSelected}
                 onClick={() => {
                   onPinSelected?.();
                   setMenuOpen(false);
@@ -188,6 +216,7 @@ export default function ChatHeader({
             <MenuItem
               label="Delete"
               danger
+              disabled={!canDeleteSelected}
               onClick={() => {
                 onDeleteSelected?.();
                 setMenuOpen(false);
@@ -263,17 +292,99 @@ export default function ChatHeader({
           ? `Last seen ${formatLastSeen(presence.lastSeen)}`
           : "Offline"}
       </div>
+
+      <div
+        style={{
+          marginLeft: "auto",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          zIndex: 2,
+        }}
+      >
+        {searchOpen && (
+          <>
+            <input
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange?.(e.target.value)}
+              placeholder="Search messages"
+              style={{
+                height: 34,
+                width: 180,
+                border: "1px solid #d9d9d9",
+                borderRadius: 8,
+                padding: "0 10px",
+                outline: "none",
+                fontSize: 14,
+              }}
+            />
+            <div style={{ fontSize: 12, color: "#4f5b62", minWidth: 48, textAlign: "center" }}>
+              {searchMatchCount ? `${searchCurrentIndex + 1}/${searchMatchCount}` : "0/0"}
+            </div>
+            <button
+              type="button"
+              onClick={onSearchPrev}
+              disabled={!searchMatchCount}
+              style={iconButtonStyle}
+              aria-label="Previous match"
+              title="Previous match"
+            >
+              {"\u2191"}
+            </button>
+            <button
+              type="button"
+              onClick={onSearchNext}
+              disabled={!searchMatchCount}
+              style={iconButtonStyle}
+              aria-label="Next match"
+              title="Next match"
+            >
+              {"\u2193"}
+            </button>
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={onToggleSearch}
+          style={iconButtonStyle}
+          aria-label={searchOpen ? "Close search" : "Open search"}
+          title={searchOpen ? "Close search" : "Open search"}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+            <path d="M20 20L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
 
+const iconButtonStyle: CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  border: "1px solid #d9d9d9",
+  background: "#fff",
+  cursor: "pointer",
+  color: "#1f2937",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 14,
+  lineHeight: 1,
+};
+
 function MenuItem({
   label,
   danger = false,
+  disabled = false,
   onClick,
 }: {
   label: string;
   danger?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -283,15 +394,17 @@ function MenuItem({
         width: "100%",
         textAlign: "left",
         padding: "10px 14px",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         fontSize: 16,
-        color: danger ? "#d32f2f" : "#000",
+        color: disabled ? "#9aa0a6" : danger ? "#d32f2f" : "#000",
         border: "none",
         background: "#fff",
         borderBottom: "1px solid #eee",
         transition: "background-color 120ms ease",
+        opacity: disabled ? 0.7 : 1,
       }}
       onMouseEnter={(e) => {
+        if (disabled) return;
         e.currentTarget.style.background = danger ? "#fff4f4" : "#f4f7ff";
       }}
       onMouseLeave={(e) => {
@@ -299,8 +412,10 @@ function MenuItem({
       }}
       onClick={(e) => {
         e.stopPropagation();
+        if (disabled) return;
         onClick();
       }}
+      disabled={disabled}
     >
       {label}
     </button>

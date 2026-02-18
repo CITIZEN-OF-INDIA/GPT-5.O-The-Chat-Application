@@ -8,6 +8,7 @@ type PresenceUser = {
 type PresenceState = {
   users: Record<string, PresenceUser>;
   ready: boolean;
+  setReady: (ready: boolean) => void;
   hydrate: (users: Array<{ userId: string; online: boolean; lastSeen?: string }>) => void;
   setOnline: (userId: string) => void;
   setOffline: (userId: string, lastSeen?: string) => void;
@@ -17,6 +18,7 @@ type PresenceState = {
 export const usePresenceStore = create<PresenceState>((set) => ({
   users: {},
   ready: false,
+  setReady: (ready) => set({ ready }),
 
   hydrate: (snapshot) =>
     set((state) => {

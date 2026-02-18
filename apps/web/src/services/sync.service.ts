@@ -157,28 +157,28 @@ export async function syncNewMessages(chatId: string) {
  * Send queued messages
  */
 export async function flushQueuedMessages() {
-  
-
   const socket = getSocket();
-  
   if (!socket) return;
 
   const queued = await getQueuedMessages();
   if (!queued.length) return;
 
-  const { activeChat } = useChatStore.getState();
-  if (!activeChat) return;
-
   const myUserId = getUserIdFromToken(useAuthStore.getState().token);
   if (!myUserId) return;
 
-  const receiver = activeChat.participants.find(
-    (p) => p.id !== myUserId
-  );
-  if (!receiver) return;
+  const { chats } = useChatStore.getState();
+  const receiverByChatId = new Map<string, string>();
+
+  for (const chat of chats) {
+    const receiver = chat.participants.find((p) => p.id !== myUserId);
+    if (receiver?.id) {
+      receiverByChatId.set(chat.id, receiver.id);
+    }
+  }
 
   for (const msg of queued) {
-    if (msg.chatId !== activeChat.id) continue;
+    const receiverId = receiverByChatId.get(msg.chatId);
+    if (!receiverId) continue;
 
     // 🔒 mark as sending
     await updateMessageStatusDB(msg.id, MessageStatus.SENDING);
@@ -190,7 +190,7 @@ export async function flushQueuedMessages() {
           "message:send",
           {
             chatId: msg.chatId,
-            receiverId: receiver.id,
+            receiverId,
             text: msg.text,
             clientId: msg.id,
             ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
@@ -238,8 +238,8 @@ export async function flushQueuedMessages() {
  */
 export async function runSyncCycle() {
   const { activeChat } = useChatStore.getState();
-  if (!activeChat?.id) return;
-
-  await syncNewMessages(activeChat.id);
+  if (activeChat?.id) {
+    await syncNewMessages(activeChat.id);
+  }
   await flushQueuedMessages();
 }

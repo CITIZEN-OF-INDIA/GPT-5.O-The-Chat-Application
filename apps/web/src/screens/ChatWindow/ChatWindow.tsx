@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useChatStore } from "../../store/chat.store";
 import { useAuthStore } from "../../store/auth.store";
 import { useMessageStore } from "../../store/message.store";
@@ -11,6 +19,9 @@ import { getSocket } from "../../services/socket.service";
 import { MessageStatus } from "../../../../../packages/shared-types/message";
 import {
   deleteMessages as deleteMessagesFromDB,
+  getLatestPinnedMessageByChat,
+  getMessageById,
+  getMessagesByIds,
   getMessagesByChatPage,
   patchMessage as patchMessageInDB,
   updateMessageStatus,
@@ -24,7 +35,23 @@ import {
   pinMessageOnServer,
 } from "../../services/message.service";
 
-const DELETED_MESSAGE_TEXT = "This message was deleted";
+const CHAT_TIMEZONE = "Asia/Kolkata";
+
+const getDateGroupKey = (timestamp: number) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: CHAT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(timestamp));
+
+const formatDateDivider = (timestamp: number) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: CHAT_TIMEZONE,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(timestamp));
 
 const TypingDots = () => {
   const dotStyle = (delay: string) => ({
@@ -85,6 +112,7 @@ export default function ChatWindow() {
   const [isTyping, setIsTyping] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const oldestLoadedRef = useRef<number | null>(null);
+  const loadingReferenceIdsRef = useRef<Set<string>>(new Set());
   const suppressNextAutoScrollRef = useRef(false);
   const allowLoadOlderRef = useRef(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -93,6 +121,10 @@ export default function ChatWindow() {
   const [editTarget, setEditTarget] = useState<Message | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
+  const [fallbackPinnedMessage, setFallbackPinnedMessage] = useState<Message | null>(null);
   const [deleteTargetIds, setDeleteTargetIds] = useState<string[] | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     messageId: string;
@@ -102,12 +134,18 @@ export default function ChatWindow() {
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const dragSelectingRef = useRef(false);
   const dragMovedRef = useRef(false);
+  const dragLastKeyRef = useRef<string | null>(null);
   const suppressSelectionClickRef = useRef(false);
+  const dragSelectionActionRef = useRef<"add" | "remove">("add");
+  const isLeftMouseDownRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
+  const dragScrollDirectionRef = useRef<1 | -1 | 0>(0);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const getSelectionKey = (m: Message) =>
-    m.id ?? m.clientId ?? `${m.chatId}:${m.senderId}:${m.createdAt}`;
+    m.clientId ?? m.id ?? `${m.chatId}:${m.senderId}:${m.createdAt}`;
 
   const enterSelectionMode = (msg: Message) => {
     const key = getSelectionKey(msg);
@@ -136,20 +174,54 @@ export default function ChatWindow() {
     });
   };
 
+  const applySelectionDuringDrag = (msg: Message) => {
+    const key = getSelectionKey(msg);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (dragSelectionActionRef.current === "remove") next.delete(key);
+      else next.add(key);
+      if (next.size === 0) setSelectionMode(false);
+      return next;
+    });
+  };
+
   const handleSelectionDragStart = (e: ReactMouseEvent<HTMLDivElement>, msg: Message) => {
-    if (!selectionMode) return;
     if (e.button !== 0) return;
+    const key = getSelectionKey(msg);
+
+    if (!selectionMode) {
+      setSelectionMode(true);
+      setSelectedIds(new Set([key]));
+      dragSelectionActionRef.current = "add";
+      dragSelectingRef.current = true;
+      dragMovedRef.current = false;
+      dragLastKeyRef.current = key;
+      suppressSelectionClickRef.current = true;
+      return;
+    }
+
+    const wasSelected = selectedIds.has(key);
+    dragSelectionActionRef.current = wasSelected ? "remove" : "add";
+
+    if (!wasSelected) {
+      addSelection(msg);
+      suppressSelectionClickRef.current = true;
+    }
+
     dragSelectingRef.current = true;
     dragMovedRef.current = false;
-    addSelection(msg);
+    dragLastKeyRef.current = key;
   };
 
   const handleSelectionDragEnter = (e: ReactMouseEvent<HTMLDivElement>, msg: Message) => {
     if (!selectionMode) return;
     if (!dragSelectingRef.current) return;
     if ((e.buttons & 1) !== 1) return;
+    const key = getSelectionKey(msg);
+    if (dragLastKeyRef.current === key) return;
     dragMovedRef.current = true;
-    addSelection(msg);
+    applySelectionDuringDrag(msg);
+    dragLastKeyRef.current = key;
   };
 
   const shouldSuppressSelectionClick = () => {
@@ -165,13 +237,32 @@ export default function ChatWindow() {
   };
 
   useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      lastPointerRef.current = { x: e.clientX, y: e.clientY };
+      if (e.button === 0) {
+        isLeftMouseDownRef.current = true;
+      }
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    };
     const onMouseUp = () => {
+      isLeftMouseDownRef.current = false;
       if (dragMovedRef.current) suppressSelectionClickRef.current = true;
       dragSelectingRef.current = false;
       dragMovedRef.current = false;
+      dragLastKeyRef.current = null;
+      dragSelectionActionRef.current = "add";
+      dragScrollDirectionRef.current = 0;
     };
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-    return () => window.removeEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
   }, []);
 
   useEffect(() => {
@@ -179,14 +270,19 @@ export default function ChatWindow() {
     setSelectedIds(new Set());
     setReplyToMessage(null);
     setEditTarget(null);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchActiveIndex(0);
     setDeleteDialogOpen(false);
     setDeleteTargetIds(null);
     setContextMenu(null);
+    setFallbackPinnedMessage(null);
+    loadingReferenceIdsRef.current = new Set();
   }, [activeChat?.id]);
 
   useEffect(() => {
     if (!activeChat || !myUserId) return;
-    joinChat(activeChat.id);
+    const leaveChat = joinChat(activeChat.id);
 
     const handleTyping = ({
       chatId,
@@ -204,6 +300,7 @@ export default function ChatWindow() {
 
     onTypingUpdate(handleTyping);
     return () => {
+      leaveChat();
       offTypingUpdate(handleTyping);
       setIsTyping(false);
     };
@@ -265,10 +362,27 @@ export default function ChatWindow() {
     return map;
   }, [messages]);
 
+  const messagesBySelectionKey = useMemo(() => {
+    const map = new Map<string, Message>();
+    messages.forEach((m) => {
+      map.set(getSelectionKey(m), m);
+    });
+    return map;
+  }, [messages]);
+
   const selectedMessages = useMemo(() => {
     const ids = selectedIds;
     return messages.filter((m) => ids.has(getSelectionKey(m)));
   }, [messages, selectedIds]);
+
+  const searchMatchedMessageIds = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    if (!needle) return [];
+
+    return messages
+      .filter((m) => !m.deleted && Boolean(m.text?.toLowerCase().includes(needle)))
+      .map((m) => m.id);
+  }, [messages, searchQuery]);
 
   const deleteCandidates = useMemo(() => {
     if (!deleteTargetIds?.length) return selectedMessages;
@@ -279,15 +393,87 @@ export default function ChatWindow() {
   const singleSelectedMessage = selectedMessages.length === 1 ? selectedMessages[0] : null;
   const canDeleteForEveryone =
     deleteCandidates.length > 0 && deleteCandidates.every((m) => m.senderId === myUserId);
+  const canCopyMessage = (m: Message) => !m.deleted && Boolean(m.text?.trim());
+  const canReplyMessage = (m: Message) => !m.deleted;
+  const canEditMessage = (m: Message) =>
+    m.senderId === myUserId && !m.deleted && Boolean(m.text?.trim());
+  const canPinMessage = (m: Message) => !m.deleted;
+  const canDeleteMessage = (m: Message) => Boolean(m.id);
+
+  const canCopySelected = selectedMessages.some(canCopyMessage);
+  const canReplySelected = Boolean(singleSelectedMessage && canReplyMessage(singleSelectedMessage));
+  const canEditSelected = Boolean(singleSelectedMessage && canEditMessage(singleSelectedMessage));
+  const canPinSelected = Boolean(singleSelectedMessage && canPinMessage(singleSelectedMessage));
+  const canDeleteSelected = selectedMessages.some(canDeleteMessage);
 
   const pinnedMessage = useMemo(() => {
     const pinned = messages.filter((m) => m.pinned);
     if (!pinned.length) return null;
     return pinned.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0];
   }, [messages]);
+  const displayedPinnedMessage = pinnedMessage ?? fallbackPinnedMessage;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeChat) return;
+
+    const missingReplyIds = Array.from(
+      new Set(
+        messages
+          .map((m) => m.replyTo)
+          .filter((replyId): replyId is string => Boolean(replyId))
+          .filter(
+            (replyId) =>
+              !messagesById.has(replyId) &&
+              !loadingReferenceIdsRef.current.has(replyId)
+          )
+      )
+    );
+
+    if (!missingReplyIds.length) return;
+    missingReplyIds.forEach((id) => loadingReferenceIdsRef.current.add(id));
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const referenced = await getMessagesByIds(missingReplyIds);
+        if (cancelled) return;
+        referenced
+          .filter((m) => m.chatId === activeChat.id)
+          .forEach((m) => addMessage(m));
+      } finally {
+        missingReplyIds.forEach((id) => loadingReferenceIdsRef.current.delete(id));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat, addMessage, messages, messagesById]);
+
+  useEffect(() => {
+    if (!activeChat) return;
+    if (pinnedMessage) {
+      setFallbackPinnedMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const fromDb = await getLatestPinnedMessageByChat(activeChat.id);
+      if (cancelled) return;
+      if (fromDb) {
+        setFallbackPinnedMessage(fromDb);
+        addMessage(fromDb);
+      } else {
+        setFallbackPinnedMessage(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat, addMessage, pinnedMessage]);
 
   useEffect(() => {
     if (suppressNextAutoScrollRef.current) {
@@ -358,13 +544,36 @@ export default function ChatWindow() {
     return other?.id || "";
   }, [activeChat, myUserId]);
 
-  const scrollToMessage = (messageId: string) => {
+  const scrollToMessage = useCallback(async (messageId: string) => {
     const target = messageRefs.current[messageId];
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    setFocusedMessageId(messageId);
-    window.setTimeout(() => setFocusedMessageId((curr) => (curr === messageId ? null : curr)), 1400);
-  };
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFocusedMessageId(messageId);
+      window.setTimeout(() => setFocusedMessageId((curr) => (curr === messageId ? null : curr)), 1400);
+      return;
+    }
+
+    const fromDb = await getMessageById(messageId);
+    if (!fromDb || (activeChat && fromDb.chatId !== activeChat.id)) return;
+    addMessage(fromDb);
+    requestAnimationFrame(() => {
+      const hydratedTarget = messageRefs.current[messageId];
+      if (!hydratedTarget) return;
+      hydratedTarget.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFocusedMessageId(messageId);
+      window.setTimeout(() => setFocusedMessageId((curr) => (curr === messageId ? null : curr)), 1400);
+    });
+  }, [activeChat, addMessage]);
+
+  useEffect(() => {
+    if (!searchOpen || !searchMatchedMessageIds.length) return;
+    const clampedIndex = Math.min(searchActiveIndex, searchMatchedMessageIds.length - 1);
+    if (clampedIndex !== searchActiveIndex) {
+      setSearchActiveIndex(clampedIndex);
+      return;
+    }
+    void scrollToMessage(searchMatchedMessageIds[clampedIndex]);
+  }, [searchOpen, searchMatchedMessageIds, searchActiveIndex, scrollToMessage]);
 
   const contextMenuMessage = contextMenu ? messagesById.get(contextMenu.messageId) ?? null : null;
 
@@ -461,29 +670,32 @@ export default function ChatWindow() {
 
   const openDeleteDialogFor = (items: Message[]) => {
     if (!items.length) return;
-    setDeleteTargetIds(items.map((m) => m.id));
+    const ids = items.map((m) => m.id).filter(Boolean);
+    if (!ids.length) return;
+    setDeleteTargetIds(ids);
     setDeleteDialogOpen(true);
   };
 
   const handleCopySelected = async () => {
+    if (!canCopySelected) return;
     await copyMessages(selectedMessages);
     clearSelection();
   };
 
   const handleReplySelected = () => {
-    if (!singleSelectedMessage) return;
+    if (!singleSelectedMessage || !canReplySelected) return;
     beginReply(singleSelectedMessage);
     clearSelection();
   };
 
   const handleEditSelected = () => {
-    if (!singleSelectedMessage) return;
+    if (!singleSelectedMessage || !canEditSelected) return;
     beginEdit(singleSelectedMessage);
     clearSelection();
   };
 
   const handlePinSelected = async () => {
-    if (!singleSelectedMessage) return;
+    if (!singleSelectedMessage || !canPinSelected) return;
     try {
       await togglePinForMessage(singleSelectedMessage);
     } catch (err) {
@@ -494,22 +706,43 @@ export default function ChatWindow() {
   };
 
   const handleDeleteSelected = () => {
-    if (!selectedMessages.length) return;
+    if (!canDeleteSelected || !selectedMessages.length) return;
     openDeleteDialogFor(selectedMessages);
   };
 
   const handleDeleteForMe = async () => {
     const ids = deleteCandidates.map((m) => m.id);
     if (!ids.length) return;
-    removeMessages(ids);
-    await deleteMessagesFromDB(ids);
-    clearSelection();
-    setDeleteDialogOpen(false);
-    setDeleteTargetIds(null);
+    const localOnlyDeletedIds = deleteCandidates
+      .filter((m) => m.deleted)
+      .map((m) => m.id);
 
     try {
-      await deleteMessagesForMeOnServer(ids);
+      const deletedIds = await deleteMessagesForMeOnServer(ids);
+      const finalDeletedIds = Array.from(new Set([...deletedIds, ...localOnlyDeletedIds]));
+      if (!finalDeletedIds.length) {
+        clearSelection();
+        setDeleteDialogOpen(false);
+        setDeleteTargetIds(null);
+        return;
+      }
+
+      removeMessages(finalDeletedIds);
+      await deleteMessagesFromDB(finalDeletedIds);
+      if (displayedPinnedMessage && finalDeletedIds.includes(displayedPinnedMessage.id)) {
+        setFallbackPinnedMessage(null);
+      }
+      clearSelection();
+      setDeleteDialogOpen(false);
+      setDeleteTargetIds(null);
     } catch (err) {
+      if (localOnlyDeletedIds.length) {
+        removeMessages(localOnlyDeletedIds);
+        await deleteMessagesFromDB(localOnlyDeletedIds);
+      }
+      clearSelection();
+      setDeleteDialogOpen(false);
+      setDeleteTargetIds(null);
       console.error("delete-for-me server sync failed", err);
     }
   };
@@ -520,17 +753,29 @@ export default function ChatWindow() {
     try {
       const deletedIds = await deleteMessagesForEveryoneOnServer(ids);
       if (!deletedIds.length) return;
-      for (const id of deletedIds) {
+
+      deletedIds.forEach((id) => {
         patchMessage(id, {
           deleted: true,
-          text: DELETED_MESSAGE_TEXT,
+          text: "",
           edited: false,
+          pinned: false,
+          updatedAt: Date.now(),
         });
-        await patchMessageInDB(id, {
-          deleted: true,
-          text: DELETED_MESSAGE_TEXT,
-          edited: false,
-        });
+      });
+      await Promise.all(
+        deletedIds.map((id) =>
+          patchMessageInDB(id, {
+            deleted: true,
+            text: "",
+            edited: false,
+            pinned: false,
+            updatedAt: Date.now(),
+          })
+        )
+      );
+      if (displayedPinnedMessage && deletedIds.includes(displayedPinnedMessage.id)) {
+        setFallbackPinnedMessage(null);
       }
     } catch (err) {
       console.error("delete-for-everyone failed", err);
@@ -549,13 +794,18 @@ export default function ChatWindow() {
 
   const handleContextAction = async (action: "copy" | "reply" | "edit" | "pin" | "delete") => {
     if (!contextMenuMessage) return;
+    const canCopy = canCopyMessage(contextMenuMessage);
+    const canReply = canReplyMessage(contextMenuMessage);
+    const canEdit = canEditMessage(contextMenuMessage);
+    const canPin = canPinMessage(contextMenuMessage);
+    const canDelete = canDeleteMessage(contextMenuMessage);
 
     try {
-      if (action === "copy") await copyMessages([contextMenuMessage]);
-      if (action === "reply") beginReply(contextMenuMessage);
-      if (action === "edit") beginEdit(contextMenuMessage);
-      if (action === "pin") await togglePinForMessage(contextMenuMessage);
-      if (action === "delete") openDeleteDialogFor([contextMenuMessage]);
+      if (action === "copy" && canCopy) await copyMessages([contextMenuMessage]);
+      if (action === "reply" && canReply) beginReply(contextMenuMessage);
+      if (action === "edit" && canEdit) beginEdit(contextMenuMessage);
+      if (action === "pin" && canPin) await togglePinForMessage(contextMenuMessage);
+      if (action === "delete" && canDelete) openDeleteDialogFor([contextMenuMessage]);
     } catch (err) {
       if (action === "pin") console.error("Failed to pin/unpin message", err);
     } finally {
@@ -564,12 +814,14 @@ export default function ChatWindow() {
   };
 
   const unpinCurrent = async () => {
-    if (!pinnedMessage) return;
+    if (!displayedPinnedMessage) return;
     try {
-      const updated = await pinMessageOnServer(pinnedMessage.id, false);
+      const updated = await pinMessageOnServer(displayedPinnedMessage.id, false);
       patchMessage(updated.id, { pinned: false, updatedAt: updated.updatedAt });
+      setFallbackPinnedMessage(null);
     } catch (err) {
       console.error("Failed to unpin message", err);
+      setFallbackPinnedMessage(null);
     }
   };
 
@@ -578,6 +830,41 @@ export default function ChatWindow() {
     await deleteChatForMe(pendingDeleteChat.id);
     removeChatMessages(pendingDeleteChat.id);
     cancelDeleteChatRequest();
+  };
+
+  const handleToggleSearch = () => {
+    setSearchOpen((prev) => {
+      if (prev) {
+        setSearchQuery("");
+        setSearchActiveIndex(0);
+      }
+      return !prev;
+    });
+  };
+
+  const handleSearchQueryChange = (query: string) => {
+    setSearchQuery(query);
+    setSearchActiveIndex(0);
+  };
+
+  const handleSearchNavigate = (direction: 1 | -1) => {
+    if (!searchMatchedMessageIds.length) return;
+    setSearchActiveIndex((prev) => (prev + direction + searchMatchedMessageIds.length) % searchMatchedMessageIds.length);
+  };
+
+  const applySelectionAtPointer = () => {
+    const pointer = lastPointerRef.current;
+    if (!pointer) return;
+    const target = document.elementFromPoint(pointer.x, pointer.y) as HTMLElement | null;
+    const keyedContainer = target?.closest("[data-selection-key]") as HTMLElement | null;
+    const key = keyedContainer?.dataset.selectionKey;
+    if (!key) return;
+    if (dragLastKeyRef.current === key) return;
+    const msg = messagesBySelectionKey.get(key);
+    if (!msg) return;
+    dragMovedRef.current = true;
+    applySelectionDuringDrag(msg);
+    dragLastKeyRef.current = key;
   };
 
   return (
@@ -597,16 +884,29 @@ export default function ChatWindow() {
           selectionMode={selectionMode}
           selectedCount={selectedIds.size}
           singleSelectedMessage={singleSelectedMessage}
+          canCopySelected={canCopySelected}
+          canReplySelected={canReplySelected}
+          canEditSelected={canEditSelected}
+          canPinSelected={canPinSelected}
+          canDeleteSelected={canDeleteSelected}
           onClearSelection={clearSelection}
           onCopySelected={handleCopySelected}
           onReplySelected={handleReplySelected}
           onEditSelected={handleEditSelected}
           onPinSelected={handlePinSelected}
           onDeleteSelected={handleDeleteSelected}
+          searchOpen={!selectionMode && searchOpen}
+          searchQuery={searchQuery}
+          searchMatchCount={searchMatchedMessageIds.length}
+          searchCurrentIndex={searchActiveIndex}
+          onToggleSearch={handleToggleSearch}
+          onSearchQueryChange={handleSearchQueryChange}
+          onSearchPrev={() => handleSearchNavigate(-1)}
+          onSearchNext={() => handleSearchNavigate(1)}
         />
       </div>
 
-      {!selectionMode && pinnedMessage && (
+      {!selectionMode && displayedPinnedMessage && (
         <div
           style={{
             background: "#e8f1ff",
@@ -620,7 +920,7 @@ export default function ChatWindow() {
         >
           <div
             style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
-            onClick={() => scrollToMessage(pinnedMessage.id)}
+            onClick={() => scrollToMessage(displayedPinnedMessage.id)}
           >
             <div style={{ color: "#0b5cff", fontSize: 12, fontWeight: 700 }}>Pinned message</div>
             <div
@@ -631,7 +931,7 @@ export default function ChatWindow() {
                 textOverflow: "ellipsis",
               }}
             >
-              {pinnedMessage.text ?? "Media message"}
+              {displayedPinnedMessage.text ?? "Media message"}
             </div>
           </div>
           <button
@@ -657,7 +957,21 @@ export default function ChatWindow() {
           const el = e.currentTarget;
           const threshold = 40;
           const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+          const delta = el.scrollTop - lastScrollTopRef.current;
+          const scrollDirection = delta === 0 ? 0 : delta > 0 ? 1 : -1;
+          lastScrollTopRef.current = el.scrollTop;
           isUserAtBottomRef.current = atBottom;
+          if (selectionMode && dragSelectingRef.current && scrollDirection !== 0) {
+            if (dragScrollDirectionRef.current === 0) {
+              dragScrollDirectionRef.current = scrollDirection;
+            } else if (dragScrollDirectionRef.current !== scrollDirection) {
+              dragSelectionActionRef.current =
+                dragSelectionActionRef.current === "add" ? "remove" : "add";
+              dragLastKeyRef.current = null;
+              dragScrollDirectionRef.current = scrollDirection;
+            }
+            applySelectionAtPointer();
+          }
           if (allowLoadOlderRef.current && el.scrollTop < 60) {
             loadOlderMessages();
           }
@@ -682,30 +996,64 @@ export default function ChatWindow() {
         )}
 
         {activeChat &&
-          messages.map((msg) => (
-            <div
-              key={msg.clientId ?? msg.id}
-              ref={(el) => {
-                messageRefs.current[msg.id] = el;
-              }}
-            >
-              <MessageBubble
-                message={msg}
-                myUserId={myUserId!}
-                selectionMode={selectionMode}
-                isSelected={selectedIds.has(getSelectionKey(msg))}
-                isFocused={focusedMessageId === msg.id}
-                replyToMessage={msg.replyTo ? messagesById.get(msg.replyTo) ?? null : null}
-                onReplyPreviewClick={scrollToMessage}
-                onEnterSelectionMode={enterSelectionMode}
-                onToggleSelection={toggleSelection}
-                onContextMenu={handleMessageContextMenu}
-                onSelectionDragStart={handleSelectionDragStart}
-                onSelectionDragEnter={handleSelectionDragEnter}
-                shouldSuppressSelectionClick={shouldSuppressSelectionClick}
-              />
-            </div>
-          ))}
+          messages.map((msg, index) => {
+            const previous = index > 0 ? messages[index - 1] : null;
+            const showDateDivider =
+              !previous || getDateGroupKey(previous.createdAt) !== getDateGroupKey(msg.createdAt);
+
+            return (
+              <div key={msg.clientId ?? msg.id}>
+                {showDateDivider && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      margin: "6px 0",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: "100%",
+                        textAlign: "center",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#4f5b62",
+                        background: "rgba(255, 255, 255, 0.86)",
+                        border: "1px solid rgba(0, 0, 0, 0.08)",
+                        borderRadius: 999,
+                        padding: "4px 12px",
+                        backdropFilter: "blur(2px)",
+                      }}
+                    >
+                      {formatDateDivider(msg.createdAt)}
+                    </span>
+                  </div>
+                )}
+                <div
+                  data-selection-key={getSelectionKey(msg)}
+                  ref={(el) => {
+                    messageRefs.current[msg.id] = el;
+                  }}
+                >
+                  <MessageBubble
+                    message={msg}
+                    myUserId={myUserId!}
+                    selectionMode={selectionMode}
+                    isSelected={selectedIds.has(getSelectionKey(msg))}
+                    isFocused={focusedMessageId === msg.id}
+                    replyToMessage={msg.replyTo ? messagesById.get(msg.replyTo) ?? null : null}
+                    onReplyPreviewClick={scrollToMessage}
+                    onEnterSelectionMode={enterSelectionMode}
+                    onToggleSelection={toggleSelection}
+                    onContextMenu={handleMessageContextMenu}
+                    onSelectionDragStart={handleSelectionDragStart}
+                    onSelectionDragEnter={handleSelectionDragEnter}
+                    shouldSuppressSelectionClick={shouldSuppressSelectionClick}
+                  />
+                </div>
+              </div>
+            );
+          })}
 
         <div ref={messagesEndRef} />
       </div>
@@ -726,16 +1074,32 @@ export default function ChatWindow() {
             border: "1px solid #e8e8e8",
           }}
         >
-          <MenuActionButton label="Copy" onClick={() => handleContextAction("copy")} />
-          <MenuActionButton label="Reply" onClick={() => handleContextAction("reply")} />
-          {contextMenuMessage.senderId === myUserId && (
-            <MenuActionButton label="Edit" onClick={() => handleContextAction("edit")} />
-          )}
+          <MenuActionButton
+            label="Copy"
+            disabled={!canCopyMessage(contextMenuMessage)}
+            onClick={() => handleContextAction("copy")}
+          />
+          <MenuActionButton
+            label="Reply"
+            disabled={!canReplyMessage(contextMenuMessage)}
+            onClick={() => handleContextAction("reply")}
+          />
+          <MenuActionButton
+            label="Edit"
+            disabled={!canEditMessage(contextMenuMessage)}
+            onClick={() => handleContextAction("edit")}
+          />
           <MenuActionButton
             label={contextMenuMessage.pinned ? "Unpin" : "Pin"}
+            disabled={!canPinMessage(contextMenuMessage)}
             onClick={() => handleContextAction("pin")}
           />
-          <MenuActionButton label="Delete" danger onClick={() => handleContextAction("delete")} />
+          <MenuActionButton
+            label="Delete"
+            danger
+            disabled={!canDeleteMessage(contextMenuMessage)}
+            onClick={() => handleContextAction("delete")}
+          />
         </div>
       )}
 
@@ -915,10 +1279,12 @@ export default function ChatWindow() {
 function MenuActionButton({
   label,
   danger = false,
+  disabled = false,
   onClick,
 }: {
   label: string;
   danger?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -928,14 +1294,16 @@ function MenuActionButton({
         width: "100%",
         textAlign: "left",
         padding: "10px 14px",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         fontSize: 16,
-        color: danger ? "#d32f2f" : "#000",
+        color: disabled ? "#9aa0a6" : danger ? "#d32f2f" : "#000",
         border: "none",
         background: "#fff",
         borderBottom: "1px solid #eee",
+        opacity: disabled ? 0.7 : 1,
       }}
       onMouseEnter={(e) => {
+        if (disabled) return;
         e.currentTarget.style.background = danger ? "#fff4f4" : "#f4f7ff";
       }}
       onMouseLeave={(e) => {
@@ -943,10 +1311,15 @@ function MenuActionButton({
       }}
       onClick={(e) => {
         e.stopPropagation();
+        if (disabled) return;
         onClick();
       }}
+      disabled={disabled}
     >
       {label}
     </button>
   );
 }
+
+
+

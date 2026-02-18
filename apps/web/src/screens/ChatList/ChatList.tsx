@@ -5,7 +5,6 @@ import ChatItem from "./ChatItem";
 import { useAuthStore } from "../../store/auth.store";
 import { useChatStore } from "../../store/chat.store";
 import { createDirectChat } from "../../services/chat.service";
-import { normalizeChat } from "../../utils/normalizeChat";
 import { getUserIdFromToken } from "../../utils/jwt";
 import type { ChatDB } from "../../db/indexedDB";
 import { isEffectivelyOnline } from "../../utils/network";
@@ -21,7 +20,7 @@ export default function ChatList() {
   const logout = useAuthStore((s) => s.logout);
   const token = useAuthStore((s) => s.token);
 
-  const { chats, activeChat, upsertChats, setActiveChat, hydrate, requestDeleteChat } =
+  const { chats, activeChat, upsertChats, reviveChatForMe, setActiveChat, hydrate, requestDeleteChat } =
     useChatStore();
 
   const [search, setSearch] = useState("");
@@ -103,9 +102,8 @@ export default function ChatList() {
     }
 
     try {
-      const rawChat = await createDirectChat(username);
-      const chat = normalizeChat(rawChat);
-
+      const chat = await createDirectChat(username);
+      await reviveChatForMe(chat.id);
       upsertChats([chat]);
       setActiveChat(chat);
       setSearch("");

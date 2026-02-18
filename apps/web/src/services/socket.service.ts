@@ -5,7 +5,12 @@ import { resolveSocketUrl } from "../utils/network";
 let socket: Socket | null = null;
 
 export const connectSocket = (token: string): Socket => {
-  if (socket && socket.connected) {
+  if (socket) {
+    socket.auth = { token };
+    registerPresenceListeners();
+    if (!socket.connected) {
+      socket.connect();
+    }
     return socket;
   }
 
@@ -42,19 +47,24 @@ export const getSocket = (options?: { requireConnected?: boolean }) => {
 
 export const joinChat = (chatId: string) => {
   const s = getSocket({ requireConnected: false });
-  if (!s) return;
+  if (!s) return () => {};
 
-  if (s.connected) {
+  const emitJoin = () => {
     s.emit("join", { chatId });
-    return;
-  }
-
-  const handleConnect = () => {
-    s.emit("join", { chatId });
-    s.off("connect", handleConnect);
   };
 
-  s.on("connect", handleConnect);
+  if (s.connected) {
+    emitJoin();
+  }
+
+  s.on("connect", emitJoin);
+
+  return () => {
+    s.off("connect", emitJoin);
+    if (s.connected) {
+      s.emit("leave", { chatId });
+    }
+  };
 };
 
 export const emitTypingStart = (chatId: string) => {

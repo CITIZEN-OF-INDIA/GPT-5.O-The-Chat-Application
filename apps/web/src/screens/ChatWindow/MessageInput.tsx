@@ -105,6 +105,7 @@ export default function MessageInput({
 
   const send = async () => {
     if (!text.trim() || !senderId) return;
+    setShowEmojiPicker(false);
 
     if (isEditing && editTarget) {
       const editedText = text.trim();

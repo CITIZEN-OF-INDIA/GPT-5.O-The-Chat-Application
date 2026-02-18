@@ -152,7 +152,9 @@ export default function MessageBubble({
   return (
     <div
       onClick={handleClick}
-      onDoubleClick={() => onEnterSelectionMode?.(message)}
+      onDoubleClick={() => {
+        if (!selectionMode) onEnterSelectionMode?.(message);
+      }}
       onContextMenu={(e) => onContextMenu?.(e, message)}
       onMouseDown={(e) => onSelectionDragStart?.(e, message)}
       onMouseEnter={(e) => onSelectionDragEnter?.(e, message)}

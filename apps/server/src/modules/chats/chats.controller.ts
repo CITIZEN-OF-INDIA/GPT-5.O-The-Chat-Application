@@ -4,6 +4,10 @@ import { ChatsService } from "./chats.service";
 import { User } from "../../db/models/User.model";
 
 export class ChatsController {
+  private static escapeRegex(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
   /**
    * POST /api/chats
    */
@@ -43,13 +47,18 @@ export class ChatsController {
   static async directChat(req: Request, res: Response) {
   try {
     const myUserId = (req as any).userId;
-    const { username } = req.body;
+    const username = String(req.body?.username ?? "").trim();
 
     if (!username) {
       return res.status(400).json({ message: "Username required" });
     }
 
-    const otherUser = await User.findOne({ username }).select("_id username");
+    const otherUser = await User.findOne({
+      username: {
+        $regex: `^${ChatsController.escapeRegex(username)}$`,
+        $options: "i",
+      },
+    }).select("_id username");
 
     if (!otherUser) {
       return res.status(404).json({ message: "User not found" });

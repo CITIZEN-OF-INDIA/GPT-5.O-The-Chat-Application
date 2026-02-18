@@ -25,6 +25,7 @@ const unbindPresenceListeners = (socket: Socket) => {
 export const registerPresenceListeners = () => {
   const socket = getSocket();
   if (!socket) return;
+  usePresenceStore.getState().setReady(true);
 
   if (boundSocket && boundSocket !== socket) {
     unbindPresenceListeners(boundSocket);

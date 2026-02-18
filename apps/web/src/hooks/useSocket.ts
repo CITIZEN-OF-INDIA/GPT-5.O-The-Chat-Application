@@ -10,8 +10,8 @@ import {
   updateMessageStatus as updateMessageStatusDB,
 } from "../db/message.repo";
 import { normalizeMessage } from "../utils/normalizeMessage";
+import { runSyncCycle } from "../services/sync.service";
 
-const DELETED_MESSAGE_TEXT = "This message was deleted";
 
 export const useSocket = (token: string | null) => {
   useEffect(() => {
@@ -19,6 +19,27 @@ export const useSocket = (token: string | null) => {
 
     const socket = connectSocket(token);
     const myUserId = getUserIdFromToken(token);
+    const handleConnect = () => {
+      void runSyncCycle();
+    };
+    const ensureConnected = () => {
+      if (!socket.connected) {
+        socket.connect();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        ensureConnected();
+      }
+    };
+
+    socket.on("connect", handleConnect);
+    if (socket.connected) {
+      void runSyncCycle();
+    }
+    window.addEventListener("focus", ensureConnected);
+    window.addEventListener("online", ensureConnected);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     socket.on("message:new", async (raw) => {
       try {
@@ -67,25 +88,33 @@ export const useSocket = (token: string | null) => {
 
     socket.on(
       "message:deleted",
-      (payload: { chatId: string; messageIds: string[] }) => {
+      async (payload: { chatId: string; messageIds: string[] }) => {
         const messageIds = Array.isArray(payload?.messageIds)
           ? payload.messageIds.map(String)
           : [];
         if (!messageIds.length) return;
 
         const store = useMessageStore.getState();
-        for (const id of messageIds) {
-          store.patchMessage(id, {
+        messageIds.forEach((messageId) => {
+          store.patchMessage(messageId, {
             deleted: true,
-            text: DELETED_MESSAGE_TEXT,
+            text: "",
             edited: false,
+            pinned: false,
+            updatedAt: Date.now(),
           });
-          patchMessageInDB(id, {
-            deleted: true,
-            text: DELETED_MESSAGE_TEXT,
-            edited: false,
-          });
-        }
+        });
+        await Promise.all(
+          messageIds.map((messageId) =>
+            patchMessageInDB(messageId, {
+              deleted: true,
+              text: "",
+              edited: false,
+              pinned: false,
+              updatedAt: Date.now(),
+            })
+          )
+        );
       }
     );
 
@@ -95,6 +124,12 @@ export const useSocket = (token: string | null) => {
       socket.off("message:status");
       socket.off("message:updated");
       socket.off("message:deleted");
+      socket.off("connect", handleConnect);
+      window.removeEventListener("focus", ensureConnected);
+      window.removeEventListener("online", ensureConnected);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [token]);
 };
+
+

@@ -5,6 +5,7 @@ import {
   getAllChats,
   getDeletedChatIdsForUser,
   markChatDeletedForUser,
+  unmarkChatDeletedForUser,
   upsertChats as persistChats,
 } from "../db/chat.repo";
 import { clearChatMessages } from "../db/message.repo";
@@ -29,6 +30,7 @@ interface ChatState {
   requestDeleteChat: (chat: ChatDB) => void;
   cancelDeleteChatRequest: () => void;
   deleteChatForMe: (chatId: string) => Promise<void>;
+  reviveChatForMe: (chatId: string) => Promise<void>;
   upsertChats: (chats: ChatDB[]) => void;
   clear: () => void;
 }
@@ -90,8 +92,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         .filter((chat) => !deletedChatIds.has(chat.id))
         .sort((a, b) => b.updatedAt - a.updatedAt);
 
-      set({ chats: serverChats, deletedChatIds: deletedIds, isLoading: false });
-      await persistChats(serverChats);
+      const localChats = get().chats.filter((chat) => !deletedChatIds.has(chat.id));
+      const merged = new Map(localChats.map((chat) => [chat.id, chat]));
+      for (const chat of serverChats) {
+        merged.set(chat.id, { ...merged.get(chat.id), ...chat });
+      }
+      const mergedChats = Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+
+      set({ chats: mergedChats, deletedChatIds: deletedIds, isLoading: false });
+      await persistChats(mergedChats);
     } catch (err) {
       console.error("Chat sync failed", err);
       set({ isLoading: false });
@@ -110,9 +119,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ activeChat: null });
       return;
     }
-
-    const exists = get().chats.some((c) => c.id === chat.id);
-    set({ activeChat: exists ? chat : null });
+    set({ activeChat: normalizeChat(chat) });
   },
 
   requestDeleteChat: (chat) => set({ pendingDeleteChat: chat }),
@@ -139,7 +146,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  upsertChats: (incoming) =>
+  reviveChatForMe: async (chatId) => {
+    const token = useAuthStore.getState().token;
+    const userId = token ? getUserIdFromToken(token) : null;
+    if (!userId) return;
+
+    await unmarkChatDeletedForUser(userId, chatId);
+    set((state) => ({
+      deletedChatIds: state.deletedChatIds.filter((id) => id !== chatId),
+    }));
+  },
+
+  upsertChats: (incoming) => {
     set((state) => {
       const deletedSet = new Set(state.deletedChatIds);
       const map = new Map(state.chats.map((c) => [c.id, c]));
@@ -155,7 +173,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return {
         chats: Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt),
       };
-    }),
+    });
+    void persistChats(get().chats);
+  },
 
   clear: () =>
     set({ chats: [], activeChat: null, pendingDeleteChat: null, deletedChatIds: [] }),

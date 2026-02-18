@@ -66,3 +66,11 @@ export async function markChatDeletedForUser(userId: string, chatId: string) {
   if (existing.includes(chatId)) return;
   await db.put("meta", { key, value: [...existing, chatId] });
 }
+
+export async function unmarkChatDeletedForUser(userId: string, chatId: string) {
+  const db = await getDB();
+  const key = `${DELETED_CHAT_IDS_META_KEY_PREFIX}${userId}`;
+  const existing = await getDeletedChatIdsForUser(userId);
+  if (!existing.includes(chatId)) return;
+  await db.put("meta", { key, value: existing.filter((id) => id !== chatId) });
+}

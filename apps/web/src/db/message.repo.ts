@@ -54,6 +54,36 @@ export async function getMessagesByChatPage(
   return messages.sort((a, b) => a.createdAt - b.createdAt);
 }
 
+export async function getMessageById(messageId: string): Promise<Message | null> {
+  const db = await getDB();
+  return (await db.get("messages", messageId)) ?? null;
+}
+
+export async function getMessagesByIds(messageIds: string[]): Promise<Message[]> {
+  if (!messageIds.length) return [];
+  const db = await getDB();
+  const tx = db.transaction("messages", "readonly");
+  const rows = await Promise.all(messageIds.map((id) => tx.store.get(id)));
+  await tx.done;
+  return rows.filter((row): row is Message => Boolean(row));
+}
+
+export async function getLatestPinnedMessageByChat(
+  chatId: string
+): Promise<Message | null> {
+  const db = await getDB();
+  const index = db.transaction("messages").store.index("by-chat-createdAt");
+  const range = IDBKeyRange.bound([chatId, 0], [chatId, Number.MAX_SAFE_INTEGER]);
+  let cursor = await index.openCursor(range, "prev");
+
+  while (cursor) {
+    if (cursor.value.pinned) return cursor.value;
+    cursor = await cursor.continue();
+  }
+
+  return null;
+}
+
 /**
  * Get queued messages
  */
