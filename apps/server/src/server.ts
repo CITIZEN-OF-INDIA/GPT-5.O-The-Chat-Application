@@ -16,7 +16,9 @@ const { server } = createApp();
 const allowedSocketOrigins = [
   env.CLIENT_URL.replace(/\/+$/, ""),
   "capacitor://localhost",
+  "ionic://localhost",
   "http://localhost",
+  "https://localhost",
   "http://localhost:5173",
   "http://localhost:3000",
   "null",
@@ -137,4 +139,3 @@ io.on("connection", async (socket) => {
 server.listen(env.PORT, () => {
   console.log(`🚀 ${APP_NAME} running on port ${env.PORT}`);
 });
-

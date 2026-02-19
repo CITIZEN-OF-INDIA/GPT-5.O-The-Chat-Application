@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Common/Button";
 import { useAuthStore } from "../../store/auth.store";
-import { isEffectivelyOnline } from "../../utils/network";
 
 export default function HiddenLogin() {
   const [error, setError] = useState<string | null>(null);
@@ -26,15 +25,9 @@ export default function HiddenLogin() {
       return;
     }
 
-    // 🛑 HARD STOP — no proxy / backend hit
-    if (!isEffectivelyOnline()) {
-      setError(" 🛑 No internet connection");
-      return;
-    }
-
     await login(username, password);
 
-    // ✅ Navigate only on success
+    // Navigate only on success
     if (isAuthenticated || useAuthStore.getState().isAuthenticated) {
       navigate("/chats");
     }

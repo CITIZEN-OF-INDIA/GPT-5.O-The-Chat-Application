@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Common/Button";
 import { useAuthStore } from "../../store/auth.store";
-import { isEffectivelyOnline } from "../../utils/network";
 
 export default function Signup() {
   const [username, setUsername] = useState("");
@@ -10,7 +9,7 @@ export default function Signup() {
 
   const navigate = useNavigate();
   const register = useAuthStore((s) => s.register);
-  const setStoreError = useAuthStore((s) => s.setError); // ✅ fixed
+  const setStoreError = useAuthStore((s) => s.setError);
   const isLoading = useAuthStore((s) => s.isLoading);
   const storeError = useAuthStore((s) => s.error);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -24,15 +23,9 @@ export default function Signup() {
     return;
   }
 
-  // 🛑 HARD STOP — do not hit proxy / backend
-  if (!isEffectivelyOnline()) {
-    setStoreError(" 🛑 No internet connection");
-    return;
-  }
-
   await register(username, password);
 
-  // ✅ Navigate ONLY if registration succeeded
+  // Navigate only if registration succeeded
   if (useAuthStore.getState().isAuthenticated) {
     navigate("/chats");
   }

@@ -13,7 +13,9 @@ export function createApp() {
   const allowedOrigins = new Set([
     env.CLIENT_URL.replace(/\/+$/, ""),
     "capacitor://localhost",
+    "ionic://localhost",
     "http://localhost",
+    "https://localhost",
     "http://localhost:5173",
     "http://localhost:3000",
     "null",
@@ -43,7 +45,7 @@ export function createApp() {
   app.use(express.json())
 
   app.use("/api/chats", chatRoutes);
-  app.use("/api/messages", messageRoutes); // ✅ ADD
+  app.use("/api/messages", messageRoutes);
 
 
 
