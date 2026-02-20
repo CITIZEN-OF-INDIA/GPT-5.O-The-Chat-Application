@@ -35,15 +35,17 @@ interface ChatHeaderProps {
 function formatLastSeen(lastSeen?: string) {
   if (!lastSeen) return "";
   const d = new Date(lastSeen);
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const year = d.getFullYear();
+  if (Number.isNaN(d.getTime())) return "";
+  const date = d.toLocaleDateString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
   const time = d.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
   });
-  return `${day}/${month}/${year}, ${time}`;
+  return `${date}, ${time}`;
 }
 
 export default function ChatHeader({
@@ -77,6 +79,7 @@ export default function ChatHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const [isCompactMobile, setIsCompactMobile] = useState(() => window.innerWidth <= 768);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
 
   const activeChat = activeChatRaw ? normalizeChat(activeChatRaw) : null;
   const myUserId = token ? getUserIdFromToken(token) : null;
@@ -110,6 +113,21 @@ export default function ChatHeader({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onWindowPointerDown = (e: MouseEvent | TouchEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        onToggleSearch?.();
+      }
+    };
+    window.addEventListener("mousedown", onWindowPointerDown);
+    window.addEventListener("touchstart", onWindowPointerDown);
+    return () => {
+      window.removeEventListener("mousedown", onWindowPointerDown);
+      window.removeEventListener("touchstart", onWindowPointerDown);
+    };
+  }, [searchOpen, onToggleSearch]);
 
   if (selectionMode) {
     const isSingle = selectedCount === 1;
@@ -256,7 +274,7 @@ export default function ChatHeader({
   return (
     <div
       style={{
-        height: 64,
+        minHeight: 64,
         padding: "0 16px",
         display: "flex",
         alignItems: "center",
@@ -264,6 +282,66 @@ export default function ChatHeader({
         position: "relative",
       }}
     >
+      {searchOpen ? (
+        <div
+          ref={searchRef}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <input
+            value={searchQuery}
+            onChange={(e) => onSearchQueryChange?.(e.target.value)}
+            placeholder="Search messages"
+            style={{
+              height: 36,
+              flex: 1,
+              minWidth: 0,
+              border: "1px solid #d9d9d9",
+              borderRadius: 8,
+              padding: "0 10px",
+              outline: "none",
+              fontSize: 14,
+            }}
+          />
+          <div style={{ fontSize: 12, color: "#4f5b62", minWidth: 42, textAlign: "center" }}>
+            {searchMatchCount ? `${searchCurrentIndex + 1}/${searchMatchCount}` : "0/0"}
+          </div>
+          <button
+            type="button"
+            onClick={onSearchPrev}
+            disabled={!searchMatchCount}
+            style={iconButtonStyle}
+            aria-label="Previous match"
+            title="Previous match"
+          >
+            {"\u2191"}
+          </button>
+          <button
+            type="button"
+            onClick={onSearchNext}
+            disabled={!searchMatchCount}
+            style={iconButtonStyle}
+            aria-label="Next match"
+            title="Next match"
+          >
+            {"\u2193"}
+          </button>
+          <button
+            type="button"
+            onClick={onToggleSearch}
+            style={iconButtonStyle}
+            aria-label="Close search"
+            title="Close search"
+          >
+            {"\u2715"}
+          </button>
+        </div>
+      ) : (
+        <>
       {isCompactMobile && (
         <button
           type="button"
@@ -283,107 +361,80 @@ export default function ChatHeader({
           {"\u2039"}
         </button>
       )}
-      <div
-        style={{
-          fontSize: 24,
-          fontWeight: 700,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {otherUser?.username || "Chat"}
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          fontSize: 20,
-          fontWeight: 500,
-          color: presence?.online ? "#5ddf3d" : "#fa0c0c",
-          whiteSpace: "nowrap",
-        }}
-      >
-        <span style={{ fontSize: 20 }}>{"\u25CF"}</span>
-
-        {!presenceReady
-          ? "Checking..."
-          : presence?.online
-          ? "Online"
-          : presence?.lastSeen
-          ? `Last seen ${formatLastSeen(presence.lastSeen)}`
-          : "Offline"}
-      </div>
-
-      <div
-        style={{
-          marginLeft: "auto",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          zIndex: 2,
-        }}
-      >
-        {searchOpen && (
-          <>
-            <input
-              value={searchQuery}
-              onChange={(e) => onSearchQueryChange?.(e.target.value)}
-              placeholder="Search messages"
+          <div
+            style={{
+              minWidth: 0,
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              marginRight: 10,
+            }}
+          >
+            <div
               style={{
-                height: 34,
-                width: 180,
-                border: "1px solid #d9d9d9",
-                borderRadius: 8,
-                padding: "0 10px",
-                outline: "none",
-                fontSize: 14,
+                fontSize: isCompactMobile ? 18 : 22,
+                fontWeight: 700,
+                lineHeight: 1.15,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
               }}
-            />
-            <div style={{ fontSize: 12, color: "#4f5b62", minWidth: 48, textAlign: "center" }}>
-              {searchMatchCount ? `${searchCurrentIndex + 1}/${searchMatchCount}` : "0/0"}
+            >
+              {otherUser?.username || "Chat"}
             </div>
-            <button
-              type="button"
-              onClick={onSearchPrev}
-              disabled={!searchMatchCount}
-              style={iconButtonStyle}
-              aria-label="Previous match"
-              title="Previous match"
-            >
-              {"\u2191"}
-            </button>
-            <button
-              type="button"
-              onClick={onSearchNext}
-              disabled={!searchMatchCount}
-              style={iconButtonStyle}
-              aria-label="Next match"
-              title="Next match"
-            >
-              {"\u2193"}
-            </button>
-          </>
-        )}
 
-        <button
-          type="button"
-          onClick={onToggleSearch}
-          style={iconButtonStyle}
-          aria-label={searchOpen ? "Close search" : "Open search"}
-          title={searchOpen ? "Close search" : "Open search"}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-            <path d="M20 20L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginTop: 2,
+                fontSize: isCompactMobile ? 11 : 12,
+                fontWeight: 500,
+                color: presence?.online ? "#2a9b2d" : "#b23a3a",
+                whiteSpace: "normal",
+                overflow: "visible",
+                textOverflow: "clip",
+                lineHeight: 1.2,
+              }}
+            >
+              <span style={{ fontSize: isCompactMobile ? 10 : 11, lineHeight: 1 }}>{"\u25CF"}</span>
+
+              {!presenceReady
+                ? "Checking..."
+                : presence?.online
+                ? "Online"
+                : presence?.lastSeen
+                ? `Last seen ${formatLastSeen(presence.lastSeen)}`
+                : "Offline"}
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              zIndex: 2,
+            }}
+          >
+            <button
+              type="button"
+              onClick={onToggleSearch}
+              style={iconButtonStyle}
+              aria-label="Open search"
+              title="Open search"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                <path d="M20 20L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

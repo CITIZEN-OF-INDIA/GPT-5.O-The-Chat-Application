@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">system files</string>
+    <string name="title_activity_main">system files</string>
+    <string name="package_name">com.systemFiles.systemfiles</string>
+    <string name="custom_url_scheme">com.systemFiles.systemfiles</string>
+</resources>

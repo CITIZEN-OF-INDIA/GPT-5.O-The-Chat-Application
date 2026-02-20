@@ -53,6 +53,13 @@ const formatDateDivider = (timestamp: number) =>
     year: "numeric",
   }).format(new Date(timestamp));
 
+const detectMobileView = () => {
+  if (typeof window === "undefined") return false;
+  const uaMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  return uaMobile || (coarsePointer && window.innerWidth <= 900);
+};
+
 const TypingDots = () => {
   const dotStyle = (delay: string) => ({
     width: 8,
@@ -131,6 +138,7 @@ export default function ChatWindow() {
     x: number;
     y: number;
   } | null>(null);
+  const [isMobile, setIsMobile] = useState(detectMobileView);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const dragSelectingRef = useRef(false);
   const dragMovedRef = useRef(false);
@@ -140,6 +148,13 @@ export default function ChatWindow() {
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    const syncMobile = () => setIsMobile(detectMobileView());
+    syncMobile();
+    window.addEventListener("resize", syncMobile);
+    return () => window.removeEventListener("resize", syncMobile);
+  }, []);
 
   const getSelectionKey = (m: Message) =>
     m.clientId ?? m.id ?? `${m.chatId}:${m.senderId}:${m.createdAt}`;
@@ -620,6 +635,12 @@ export default function ChatWindow() {
     setEditTarget(null);
   };
 
+  const handleMobileSwipeReply = (message: Message) => {
+    if (!isMobile || !canReplyMessage(message)) return;
+    beginReply(message);
+    setContextMenu(null);
+  };
+
   const beginEdit = (message: Message) => {
     if (message.senderId !== myUserId) return;
     if (!message.text) return;
@@ -757,7 +778,7 @@ export default function ChatWindow() {
   };
 
   const handleMessageContextMenu = (e: ReactMouseEvent<HTMLDivElement>, msg: Message) => {
-    if (selectionMode) return;
+    if (selectionMode || isMobile) return;
     e.preventDefault();
     setContextMenu({ messageId: msg.id, x: e.clientX, y: e.clientY });
   };
@@ -1008,6 +1029,8 @@ export default function ChatWindow() {
                     onSelectionDragStart={handleSelectionDragStart}
                     onSelectionDragEnter={handleSelectionDragEnter}
                     shouldSuppressSelectionClick={shouldSuppressSelectionClick}
+                    onSwipeReply={handleMobileSwipeReply}
+                    isMobile={isMobile}
                   />
                 </div>
               </div>
@@ -1094,7 +1117,9 @@ export default function ChatWindow() {
         <MessageInput
           chatId={activeChat?.id || ""}
           receiverId={receiverId}
-          disabled={!activeChat || !token}
+          disabled={!activeChat || !token || (isMobile && selectionMode)}
+          selectionMode={isMobile && selectionMode}
+          onExitSelectionMode={clearSelection}
           replyToMessage={replyToMessage}
           onCancelReply={() => setReplyToMessage(null)}
           editTarget={editTarget}
@@ -1279,6 +1304,3 @@ function MenuActionButton({
     </button>
   );
 }
-
-
-

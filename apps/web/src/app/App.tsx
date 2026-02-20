@@ -6,6 +6,7 @@ import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { runSyncCycle } from "../services/sync.service";
 import { useChatStore } from "../store/chat.store";
 
+const RESET_ON_RESUME_FLAG = "reset_to_root_on_resume";
 
 export default function App() {
   const restoreSession = useAuthStore((s) => s.restoreSession);
@@ -14,35 +15,51 @@ export default function App() {
   const isOnline = useOnlineStatus();
   const hydrateChats = useChatStore((s) => s.hydrateFromCache);
 
-
-  
-
-
   useEffect(() => {
-    hydrateChats(); // 🔥 loads chat list instantly
-  }, []);
-  
+    hydrateChats();
+  }, [hydrateChats]);
+
   useEffect(() => {
     if (!isOnline) return;
-
-    // 🔥 fires:
-    // 1. on app load
-    // 2. when internet reconnects
     runSyncCycle();
   }, [isOnline]);
 
   useEffect(() => {
     restoreSession();
 
-    // 🔒 Lock global scrolling for app shell
     document.body.style.margin = "0";
     document.body.style.padding = "0";
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
   }, [restoreSession]);
 
-  // ✅ SOCKET STARTS ONLY AFTER TOKEN EXISTS
-  
+  useEffect(() => {
+    const isDesktop = Boolean((window as any).desktop?.isDesktop);
+    if (isDesktop) return;
+
+    // On mobile app start, always boot from first screen.
+    if (window.location.pathname !== "/") {
+      window.history.replaceState({}, "", "/");
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        sessionStorage.setItem(RESET_ON_RESUME_FLAG, "1");
+        return;
+      }
+
+      const shouldReset = sessionStorage.getItem(RESET_ON_RESUME_FLAG) === "1";
+      if (shouldReset && window.location.pathname !== "/") {
+        sessionStorage.removeItem(RESET_ON_RESUME_FLAG);
+        window.location.replace("/");
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   return <AppRoutes />;
 }

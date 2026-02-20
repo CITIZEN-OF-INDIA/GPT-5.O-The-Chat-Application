@@ -28,6 +28,8 @@ interface MessageInputProps {
   chatId: ChatID;
   receiverId: UserID;
   disabled?: boolean;
+  selectionMode?: boolean;
+  onExitSelectionMode?: () => void;
   replyToMessage?: Message | null;
   onCancelReply?: () => void;
   editTarget?: Message | null;
@@ -55,6 +57,8 @@ export default function MessageInput({
   chatId,
   receiverId,
   disabled = false,
+  selectionMode = false,
+  onExitSelectionMode,
   replyToMessage = null,
   onCancelReply,
   editTarget = null,
@@ -62,7 +66,13 @@ export default function MessageInput({
 }: MessageInputProps) {
   const [text, setText] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [mobileEmojiHeight, setMobileEmojiHeight] = useState(320);
+  const [mobileEmojiWidth, setMobileEmojiWidth] = useState<number>(
+    window.visualViewport?.width ?? window.innerWidth
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const emojiPanelRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<number>(0);
   const restoreCursorRef = useRef<number | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -75,6 +85,38 @@ export default function MessageInput({
 
   const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
   const isEditing = Boolean(editTarget);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const computeMobileEmojiSize = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const viewportWidth = Math.max(
+        Math.round(window.visualViewport?.width ?? 0),
+        window.innerWidth,
+        document.documentElement?.clientWidth ?? 0
+      );
+      const desired = Math.round(viewportHeight * 0.42);
+      const clamped = Math.max(260, Math.min(420, desired));
+      setMobileEmojiHeight(clamped);
+      setMobileEmojiWidth(viewportWidth);
+    };
+    computeMobileEmojiSize();
+    window.addEventListener("resize", computeMobileEmojiSize);
+    window.visualViewport?.addEventListener("resize", computeMobileEmojiSize);
+    return () => {
+      window.removeEventListener("resize", computeMobileEmojiSize);
+      window.visualViewport?.removeEventListener("resize", computeMobileEmojiSize);
+    };
+  }, [isMobile]);
+
+  const focusComposer = () => {
+    if (!isMobile || disabled || showEmojiPicker) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const pos = Math.min(cursorRef.current, el.value.length);
+    el.setSelectionRange(pos, pos);
+  };
 
   useEffect(() => {
     if (!chatId || !senderId || isEditing) return;
@@ -103,9 +145,18 @@ export default function MessageInput({
     });
   }, [editTarget?.id]);
 
+  useEffect(() => {
+    if (!isMobile || disabled || showEmojiPicker) return;
+    requestAnimationFrame(() => {
+      focusComposer();
+    });
+  }, [isMobile, disabled, showEmojiPicker, chatId]);
+
   const send = async () => {
     if (!text.trim() || !senderId) return;
-    setShowEmojiPicker(false);
+    if (!isMobile) {
+      setShowEmojiPicker(false);
+    }
 
     if (isEditing && editTarget) {
       const editedText = text.trim();
@@ -204,6 +255,11 @@ export default function MessageInput({
 
     setText("");
     onCancelReply?.();
+    if (isMobile && !disabled && document.activeElement !== textareaRef.current) {
+      requestAnimationFrame(() => {
+        focusComposer();
+      });
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -220,17 +276,21 @@ export default function MessageInput({
     if (!el) return;
     const pos = restoreCursorRef.current;
     el.setSelectionRange(pos, pos);
-    el.focus();
+    if (!(isMobile && showEmojiPicker)) {
+      el.focus();
+    }
     cursorRef.current = pos;
     restoreCursorRef.current = null;
-  }, [text]);
+  }, [text, isMobile, showEmojiPicker]);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    const maxLines = isMobile ? 6 : 12;
+    const maxHeightPx = maxLines * 22;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 12 * 22) + "px";
-  }, [text]);
+    el.style.height = Math.min(el.scrollHeight, maxHeightPx) + "px";
+  }, [text, isMobile]);
 
   useEffect(() => {
     return () => {
@@ -241,10 +301,22 @@ export default function MessageInput({
   }, [chatId]);
 
   useEffect(() => {
-    const close = () => setShowEmojiPicker(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, []);
+    if (!showEmojiPicker) return;
+    if (isMobile) return;
+    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (emojiButtonRef.current?.contains(target)) return;
+      if (emojiPanelRef.current?.contains(target)) return;
+      setShowEmojiPicker(false);
+    };
+    window.addEventListener("mousedown", closeOnOutside, true);
+    window.addEventListener("touchstart", closeOnOutside, true);
+    return () => {
+      window.removeEventListener("mousedown", closeOnOutside, true);
+      window.removeEventListener("touchstart", closeOnOutside, true);
+    };
+  }, [showEmojiPicker]);
 
   const handleEmojiSelect = (emoji: string) => {
     const start = cursorRef.current;
@@ -279,8 +351,35 @@ export default function MessageInput({
     ? editTarget?.text
     : replyToMessage?.text ?? "Media message";
 
+  const toggleEmojiPicker = () => {
+    if (selectionMode) {
+      onExitSelectionMode?.();
+      return;
+    }
+    if (!isMobile) {
+      setShowEmojiPicker((p) => !p);
+      return;
+    }
+    setShowEmojiPicker((prev) => {
+      const next = !prev;
+      if (next) {
+        textareaRef.current?.blur();
+      } else {
+        window.setTimeout(() => {
+          focusComposer();
+        }, 0);
+      }
+      return next;
+    });
+  };
+
   return (
-    <div style={{ width: "100%" }}>
+    <div
+      style={{
+        width: "100%",
+        marginBottom: isMobile && showEmojiPicker ? mobileEmojiHeight + 8 : 0,
+      }}
+    >
       {(isEditing || replyToMessage) && (
         <div
           style={{
@@ -338,98 +437,224 @@ export default function MessageInput({
           position: "relative",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            backgroundColor: "transparent",
-            gap: 10,
-            paddingBottom: 20,
-          }}
-        >
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowEmojiPicker((p) => !p);
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              opacity: 0.85,
-            }}
-            aria-label="Emoji"
-          >
-            <EmojiIcon />
-          </button>
-        </div>
-
         {showEmojiPicker && (
           <div
+            ref={emojiPanelRef}
             style={{
-              position: "absolute",
-              bottom: 10,
-              left: 0,
-              zIndex: 10,
+              position: isMobile ? "fixed" : "absolute",
+              bottom: isMobile ? 0 : 10,
+              left: isMobile ? 0 : 0,
+              right: isMobile ? 0 : "auto",
+              width: isMobile ? "100dvw" : "auto",
+              minWidth: isMobile ? "100dvw" : "auto",
+              maxWidth: isMobile ? "100dvw" : "none",
+              zIndex: isMobile ? 30 : 10,
+              background: isMobile ? "#fff" : "transparent",
+              borderTop: isMobile ? "1px solid #dadada" : "none",
+              borderRadius: isMobile ? "12px 12px 0 0" : 0,
+              boxShadow: isMobile ? "0 -2px 10px rgba(0,0,0,0.1)" : "none",
+              height: isMobile ? mobileEmojiHeight : "auto",
+              maxHeight: isMobile ? mobileEmojiHeight : "none",
+              overflowY: isMobile ? "auto" : "visible",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <EmojiPicker onSelect={handleEmojiSelect} />
+            <EmojiPicker
+              onSelect={handleEmojiSelect}
+              isMobile={isMobile}
+              mobileHeight={mobileEmojiHeight}
+              mobileWidth={mobileEmojiWidth}
+            />
           </div>
         )}
 
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            const nextText = e.target.value;
-            setText(nextText);
-            if (chatId && senderId && !isEditing) {
-              const key = getDraftStorageKey(senderId, chatId);
-              if (nextText.length) localStorage.setItem(key, nextText);
-              else localStorage.removeItem(key);
-            }
-            triggerTyping();
-          }}
-          onKeyDown={onKeyDown}
-          onSelect={(e) => {
-            cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
-          }}
-          onClick={(e) => {
-            cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
-          }}
-          onKeyUp={(e) => {
-            cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
-          }}
-          placeholder={disabled ? "Select a chat to enable input" : "Type a message"}
-          disabled={disabled}
-          rows={1}
-          style={{
-            flex: 1,
-            padding: "10px 14px",
-            borderRadius: 40,
-            border: "none",
-            outline: "none",
-            backgroundColor: "#cfe9ff",
-            color: "#000",
-            fontSize: 18,
-            resize: "none",
-            maxHeight: "calc(12 * 1.4em + 20px)",
-            overflowY: "auto",
-            lineHeight: "1.4",
-            opacity: disabled ? 0.6 : 1,
-            cursor: disabled ? "not-allowed" : "text",
-          }}
-        />
+        {isMobile ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "flex-end",
+              gap: 8,
+              padding: "8px 12px",
+              borderRadius: 40,
+              border: "none",
+              outline: "none",
+              backgroundColor: "#cfe9ff",
+              opacity: disabled ? 0.6 : 1,
+            }}
+            onMouseDown={(e) => {
+              if (!selectionMode) return;
+              e.preventDefault();
+              onExitSelectionMode?.();
+            }}
+            onTouchStart={(e) => {
+              if (!selectionMode) return;
+              e.preventDefault();
+              onExitSelectionMode?.();
+            }}
+          >
+            <button
+              ref={emojiButtonRef}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleEmojiPicker();
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                opacity: 0.85,
+                padding: 0,
+                marginBottom: 4,
+                flexShrink: 0,
+              }}
+              aria-label="Emoji"
+            >
+              <EmojiIcon />
+            </button>
+            
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => {
+                const nextText = e.target.value;
+                setText(nextText);
+                if (chatId && senderId && !isEditing) {
+                  const key = getDraftStorageKey(senderId, chatId);
+                  if (nextText.length) localStorage.setItem(key, nextText);
+                  else localStorage.removeItem(key);
+                }
+                triggerTyping();
+              }}
+              onKeyDown={onKeyDown}
+              onSelect={(e) => {
+                cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+              }}
+              onClick={(e) => {
+                cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+              }}
+              onFocus={() => {
+                if (showEmojiPicker) setShowEmojiPicker(false);
+              }}
+              onKeyUp={(e) => {
+                cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+              }}
+              placeholder={
+                selectionMode
+                  ? "Tap here to exit selection mode"
+                  : disabled
+                  ? "Select a chat to enable input"
+                  : "Type a message"
+              }
+              disabled={disabled}
+              rows={1}
+              style={{
+                flex: 1,
+                padding: "2px 2px 2px 0",
+                borderRadius: 0,
+                border: "none",
+                outline: "none",
+                backgroundColor: "transparent",
+                color: "#000",
+                fontSize: 16,
+                resize: "none",
+                maxHeight: "calc(6 * 1.4em + 20px)",
+                overflowY: "auto",
+                lineHeight: "1.4",
+                opacity: disabled ? 0.6 : 1,
+                cursor: selectionMode ? "pointer" : disabled ? "not-allowed" : "text",
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "flex",
+                backgroundColor: "transparent",
+                gap: 10,
+                paddingBottom: 20,
+              }}
+            >
+              <button
+                ref={emojiButtonRef}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleEmojiPicker();
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  opacity: 0.85,
+                }}
+                aria-label="Emoji"
+              >
+                <EmojiIcon />
+              </button>
+            </div>
+
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => {
+                const nextText = e.target.value;
+                setText(nextText);
+                if (chatId && senderId && !isEditing) {
+                  const key = getDraftStorageKey(senderId, chatId);
+                  if (nextText.length) localStorage.setItem(key, nextText);
+                  else localStorage.removeItem(key);
+                }
+                triggerTyping();
+              }}
+              onKeyDown={onKeyDown}
+              onSelect={(e) => {
+                cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+              }}
+              onClick={(e) => {
+                cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+              }}
+              onFocus={() => {
+                if (showEmojiPicker) setShowEmojiPicker(false);
+              }}
+              onKeyUp={(e) => {
+                cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+              }}
+              placeholder={disabled ? "Select a chat to enable input" : "Type a message"}
+              disabled={disabled}
+              rows={1}
+              style={{
+                flex: 1,
+                padding: "10px 14px",
+                borderRadius: 40,
+                border: "none",
+                outline: "none",
+                backgroundColor: "#cfe9ff",
+                color: "#000",
+                fontSize: 18,
+                resize: "none",
+                maxHeight: "calc(12 * 1.4em + 20px)",
+                overflowY: "auto",
+                lineHeight: "1.4",
+                opacity: disabled ? 0.6 : 1,
+                cursor: disabled ? "not-allowed" : "text",
+              }}
+            />
+          </>
+        )}
 
         <button
+          onMouseDown={(e) => e.preventDefault()}
           onClick={send}
           disabled={disabled || !text.trim()}
           style={{
-            width: 40,
-            height: 40,
-            marginBottom: 12,
+            width: isMobile ? 48 : 40,
+            height: isMobile ? 48 : 40,
+            marginBottom: isMobile ? 0 : 12,
             borderRadius: "50%",
             border: "none",
             backgroundColor: "#0b5cff",
@@ -438,8 +663,9 @@ export default function MessageInput({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 18,
+            fontSize: isMobile ? 20 : 18,
             boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+            flexShrink: 0,
           }}
           aria-label="Send"
         >

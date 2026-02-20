@@ -1,7 +1,12 @@
 import type { Message } from "../../../../../packages/shared-types/message";
 import MessageStatus from "./MessageStatus";
 import { useAuthStore } from "../../store/auth.store";
-import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 
 interface MessageBubbleProps {
   message: Message;
@@ -17,6 +22,8 @@ interface MessageBubbleProps {
   onSelectionDragStart?: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
   onSelectionDragEnter?: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
   shouldSuppressSelectionClick?: () => boolean;
+  onSwipeReply?: (m: Message) => void;
+  isMobile?: boolean;
 }
 
 function formatIST(timestamp: number) {
@@ -42,11 +49,27 @@ export default function MessageBubble({
   onSelectionDragStart,
   onSelectionDragEnter,
   shouldSuppressSelectionClick,
+  onSwipeReply,
+  isMobile = false,
 }: MessageBubbleProps) {
   const token = useAuthStore((s) => s.token);
   const timeIST = message.createdAt ? formatIST(message.createdAt) : "";
 
-  const [activatedLinks, setActivatedLinks] = useState<Set<number>>(new Set());
+  const VISITED_LINKS_STORAGE_KEY = "visited-links-v1";
+
+  const [visitedLinks, setVisitedLinks] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.localStorage.getItem(VISITED_LINKS_STORAGE_KEY);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set();
+      const links = parsed.filter((item): item is string => typeof item === "string");
+      return new Set(links);
+    } catch {
+      return new Set();
+    }
+  });
 
   let currentUserId = myUserId ?? null;
   if (!currentUserId && token) {
@@ -63,6 +86,10 @@ export default function MessageBubble({
   const hasReply = Boolean(message.replyTo);
   const canOpenReplyPreview = Boolean(message.replyTo && replyToMessage);
   const longPressTimer = useRef<number | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeTriggeredRef = useRef(false);
+  const longPressTriggeredRef = useRef(false);
+  const suppressTapUntilRef = useRef(0);
 
   const clearLongPressTimer = () => {
     if (longPressTimer.current) {
@@ -71,16 +98,55 @@ export default function MessageBubble({
     }
   };
 
-  const handleTouchStart = () => {
+  const handleTouchStart = (e: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isMobile) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    swipeTriggeredRef.current = false;
+    longPressTriggeredRef.current = false;
     if (!onEnterSelectionMode && !onToggleSelection) return;
     longPressTimer.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      suppressTapUntilRef.current = Date.now() + 180;
       if (selectionMode) onToggleSelection?.(message);
       else onEnterSelectionMode?.(message);
     }, 450);
   };
 
+  const handleTouchMove = (e: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isMobile) return;
+    const origin = touchStartRef.current;
+    const touch = e.touches[0];
+    if (!origin || !touch) return;
+
+    const deltaX = touch.clientX - origin.x;
+    const deltaY = touch.clientY - origin.y;
+
+    if (!swipeTriggeredRef.current && Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      swipeTriggeredRef.current = true;
+      clearLongPressTimer();
+      onSwipeReply?.(message);
+      return;
+    }
+
+    if (!longPressTriggeredRef.current && (Math.abs(deltaY) > 20 || Math.abs(deltaX) > 20)) {
+      clearLongPressTimer();
+    }
+  };
+
+  const handleTouchEnd = () => {
+    clearLongPressTimer();
+    touchStartRef.current = null;
+    swipeTriggeredRef.current = false;
+    longPressTriggeredRef.current = false;
+  };
+
   const handleClick = () => {
     if (!selectionMode) return;
+    if (isMobile && Date.now() < suppressTapUntilRef.current) {
+      return;
+    }
     if (shouldSuppressSelectionClick?.()) return;
     onToggleSelection?.(message);
   };
@@ -92,12 +158,30 @@ export default function MessageBubble({
     return text.split(regex).map((part, index) => {
       if (!part) return null;
 
-      const isActive = activatedLinks.has(index);
+      const normalizedLink = /^https?:\/\//i.test(part)
+        ? part
+        : /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(part)
+        ? `mailto:${part}`
+        : /^\+?\d[\d\s-]{7,}\d$/.test(part)
+        ? `tel:${part.replace(/[^\d+]/g, "")}`
+        : "";
+
+      const isActive = normalizedLink ? visitedLinks.has(normalizedLink) : false;
       const color = isActive ? "#ff9f1a" : "#0645AD";
 
       const activate = (e: ReactMouseEvent) => {
         e.stopPropagation();
-        setActivatedLinks((prev) => new Set(prev).add(index));
+        if (!normalizedLink) return;
+        setVisitedLinks((prev) => {
+          if (prev.has(normalizedLink)) return prev;
+          const next = new Set(prev).add(normalizedLink);
+          try {
+            window.localStorage.setItem(VISITED_LINKS_STORAGE_KEY, JSON.stringify([...next]));
+          } catch {
+            // Ignore storage failures and keep in-memory state.
+          }
+          return next;
+        });
       };
 
       if (/^https?:\/\//i.test(part)) {
@@ -153,15 +237,16 @@ export default function MessageBubble({
     <div
       onClick={handleClick}
       onDoubleClick={() => {
+        if (isMobile) return;
         if (!selectionMode) onEnterSelectionMode?.(message);
       }}
       onContextMenu={(e) => onContextMenu?.(e, message)}
       onMouseDown={(e) => onSelectionDragStart?.(e, message)}
       onMouseEnter={(e) => onSelectionDragEnter?.(e, message)}
       onTouchStart={handleTouchStart}
-      onTouchEnd={clearLongPressTimer}
-      onTouchCancel={clearLongPressTimer}
-      onTouchMove={clearLongPressTimer}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       style={{
         width: "100%",
         display: "flex",
