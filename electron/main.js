@@ -1,12 +1,11 @@
 const { app, BrowserWindow, net, Menu, Tray, nativeImage } = require("electron");
-
 const path = require("path");
 const fs = require("fs");
 const Store = require("electron-store").default;
 
 const store = new Store();
 let mainWindow;
-let tray; // added tray variable
+let tray;
 
 const PROD_UI_URL = process.env.PROD_UI_URL || "";
 const VERSION_URL = process.env.VERSION_URL || "";
@@ -22,7 +21,6 @@ function isValidRemoteUrl(value) {
   }
 }
 
-// ---------- INTERNET CHECK ----------
 async function hasInternet() {
   if (!isValidRemoteUrl(VERSION_URL)) return false;
   return new Promise((resolve) => {
@@ -57,6 +55,7 @@ async function loadBundledUi() {
     throw new Error("Bundled UI not found (apps/web/dist/index.html).");
   }
   await mainWindow.loadFile(uiPath);
+  store.set("last_ui_source", "bundled");
   return uiPath;
 }
 
@@ -78,42 +77,51 @@ async function tryLoadRemote(label) {
 }
 
 async function loadInitialPage() {
-  if (!mainWindow) return;
+  if (!mainWindow) return "bundled";
 
   const online = await hasInternet();
-
   let loadedSource = "bundled";
 
-  // Try remote first if online
   if (online) {
-    const remoteLoaded = await tryLoadRemote("Tray click remote load");
+    const remoteLoaded = await tryLoadRemote("Initial remote load");
     if (remoteLoaded) loadedSource = "remote";
   }
 
-  // Fallback cached remote
   const hadRemoteBefore = store.get("last_remote_loaded_ok", false);
   if (loadedSource !== "remote" && hadRemoteBefore) {
-    const cachedLoaded = await tryLoadRemote("Tray click cached remote");
+    const cachedLoaded = await tryLoadRemote("Initial cached remote load");
     if (cachedLoaded) loadedSource = "cached-remote";
   }
 
-  // Last fallback: bundled
   if (loadedSource === "bundled") {
     await loadBundledUi();
   }
 
   mainWindow.show();
   mainWindow.focus();
+  return loadedSource;
 }
 
+function createWhiteTrayIcon() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+      <rect x="0" y="0" width="16" height="16" fill="#FFFFFF"/>
+    </svg>
+  `.trim();
 
-// ---------- WINDOW ----------
+  const image = nativeImage.createFromDataURL(
+    `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+  );
+  image.setTemplateImage(false);
+  return image;
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    show: false, // start hidden
-    skipTaskbar: true, // hides from taskbar
+    show: false,
+    skipTaskbar: true,
     webPreferences: {
       contextIsolation: true,
       sandbox: false,
@@ -122,70 +130,42 @@ async function createWindow() {
   });
 
   Menu.setApplicationMenu(null);
+  mainWindow.setSkipTaskbar(true);
 
-  // ---------- SYSTEM TRAY ----------
-  // ---------- SYSTEM TRAY ----------
-const trayIcon = nativeImage.createEmpty(); // default tiny icon
-tray = new Tray(trayIcon); 
-tray.setToolTip("My Chat App");
+  tray = new Tray(createWhiteTrayIcon());
+  tray.setToolTip("My Chat App");
 
-tray.setContextMenu(
-  Menu.buildFromTemplate([
-    { label: "Show", click: async () => { await loadInitialPage(); } },
-    { label: "Quit", click: () => { app.isQuiting = true; app.quit(); } },
-  ])
-);
+  const trayMenu = Menu.buildFromTemplate([
+    { label: "Show", click: async () => loadInitialPage() },
+    { type: "separator" },
+    { label: "Quit", click: () => app.quit() },
+  ]);
+  tray.setContextMenu(trayMenu);
 
-tray.on("click", async () => {
-  await loadInitialPage();
-});
+  tray.on("click", async () => {
+    await loadInitialPage();
+  });
 
+  tray.on("right-click", async () => {
+    await loadInitialPage();
+    tray.popUpContextMenu(trayMenu);
+  });
 
-
-  // Minimize or close to tray
   mainWindow.on("minimize", (event) => {
     event.preventDefault();
     mainWindow.hide();
   });
 
-  
-  // 🔍 DEBUG (SAFE)
+  const initialSource = await loadInitialPage();
   const online = await hasInternet();
 
-  let loadedSource = "bundled";
-
-  // 1) ONLINE -> load deployed frontend
-  if (online) {
-    console.log("Online: trying remote UI");
-    const remoteLoaded = await tryLoadRemote("Remote online load");
-    if (remoteLoaded) loadedSource = "remote";
-  }
-
-  // 2) OFFLINE or remote failed -> try cached remote UI
-  const hadRemoteBefore = store.get("last_remote_loaded_ok", false);
-  if (loadedSource !== "remote" && hadRemoteBefore) {
-    console.log("Fallback: trying cached remote UI");
-    const cachedLoaded = await tryLoadRemote("Remote cached load");
-    if (cachedLoaded) loadedSource = "cached-remote";
-  }
-
-  // 3) last fallback -> bundled UI
-  if (loadedSource === "bundled") {
-    const bundledPath = await loadBundledUi();
-    store.set("last_ui_source", "bundled");
-    console.log(`Loaded bundled UI from: ${bundledPath}`);
-  }
-
-  // 🔁 VERSION CHECK (ONLY WHEN ONLINE)
   mainWindow.webContents.on("did-finish-load", async () => {
-    if (!online || loadedSource === "bundled") return;
+    if (!online || initialSource === "bundled") return;
 
     try {
-      const currentVersion =
-        await mainWindow.webContents.executeJavaScript(
-          "window.__UI_VERSION__"
-        );
-
+      const currentVersion = await mainWindow.webContents.executeJavaScript(
+        "window.__UI_VERSION__"
+      );
       const savedVersion = store.get("ui_version");
 
       if (savedVersion !== currentVersion) {
@@ -196,8 +176,6 @@ tray.on("click", async () => {
       console.log("Version check skipped");
     }
   });
-
-  mainWindow.show(); // show after setup
 }
 
 app.whenReady().then(createWindow);
@@ -205,4 +183,3 @@ app.whenReady().then(createWindow);
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-

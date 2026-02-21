@@ -652,11 +652,17 @@ export default function ChatWindow() {
     const shouldPin = !message.pinned;
     const updated = await pinMessageOnServer(message.id, shouldPin);
     if (updated.pinned) {
-      messages
-        .filter((m) => m.chatId === updated.chatId && m.id !== updated.id && m.pinned)
-        .forEach((m) => patchMessage(m.id, { pinned: false }));
+      const otherPinned = messages.filter(
+        (m) => m.chatId === updated.chatId && m.id !== updated.id && m.pinned
+      );
+      otherPinned.forEach((m) => patchMessage(m.id, { pinned: false }));
+      await Promise.all(otherPinned.map((m) => patchMessageInDB(m.id, { pinned: false })));
     }
     patchMessage(updated.id, { pinned: updated.pinned, updatedAt: updated.updatedAt });
+    await patchMessageInDB(updated.id, { pinned: updated.pinned, updatedAt: updated.updatedAt });
+    if (!updated.pinned) {
+      setFallbackPinnedMessage(null);
+    }
   };
 
   const openDeleteDialogFor = (items: Message[]) => {
@@ -809,6 +815,7 @@ export default function ChatWindow() {
     try {
       const updated = await pinMessageOnServer(displayedPinnedMessage.id, false);
       patchMessage(updated.id, { pinned: false, updatedAt: updated.updatedAt });
+      await patchMessageInDB(updated.id, { pinned: false, updatedAt: updated.updatedAt });
       setFallbackPinnedMessage(null);
     } catch (err) {
       console.error("Failed to unpin message", err);

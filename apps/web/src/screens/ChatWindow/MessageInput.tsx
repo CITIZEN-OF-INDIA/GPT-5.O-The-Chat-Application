@@ -306,8 +306,9 @@ export default function MessageInput({
     const closeOnOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
-      if (emojiButtonRef.current?.contains(target)) return;
-      if (emojiPanelRef.current?.contains(target)) return;
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (emojiButtonRef.current?.contains(target) || path.includes(emojiButtonRef.current)) return;
+      if (emojiPanelRef.current?.contains(target) || path.includes(emojiPanelRef.current)) return;
       setShowEmojiPicker(false);
     };
     window.addEventListener("mousedown", closeOnOutside, true);
@@ -442,7 +443,7 @@ export default function MessageInput({
             ref={emojiPanelRef}
             style={{
               position: isMobile ? "fixed" : "absolute",
-              bottom: isMobile ? 0 : 10,
+              bottom: isMobile ? 0 : "calc(100% + 8px)",
               left: isMobile ? 0 : 0,
               right: isMobile ? 0 : "auto",
               width: isMobile ? "100dvw" : "auto",
@@ -536,7 +537,7 @@ export default function MessageInput({
                 cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
               }}
               onFocus={() => {
-                if (showEmojiPicker) setShowEmojiPicker(false);
+                if (isMobile && showEmojiPicker) setShowEmojiPicker(false);
               }}
               onKeyUp={(e) => {
                 cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
@@ -619,7 +620,7 @@ export default function MessageInput({
                 cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
               }}
               onFocus={() => {
-                if (showEmojiPicker) setShowEmojiPicker(false);
+                if (isMobile && showEmojiPicker) setShowEmojiPicker(false);
               }}
               onKeyUp={(e) => {
                 cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart;
