@@ -2,6 +2,8 @@
 
 
 
+<img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=20&pause=1000&color=0EA5E9&center=true&vCenter=true&width=750&lines=Real-time+chat+experience;Offline+queue+%2B+auto-sync+engine;Web+%7C+Desktop+%7C+Android+ready" alt="typing animation" />
+
 <br/>
 
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
