@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&height=180&color=0:0ea5e9,100:2563eb&text=GPT%205.O%20Chat%20Application&fontColor=ffffff&fontSize=36&fontAlignY=35&desc=Real-time%20Messaging%20Across%20Web,%20Desktop%20%26%20Android&descAlignY=55" alt="header" />
 
-<img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=20&pause=1000&color=0EA5E9&center=true&vCenter=true&width=750&lines=Real-time+chat+experience;Offline+queue+%2B+auto-sync+engine;Web+%7C+Desktop+%7C+Android+ready" alt="typing animation" />
 
 <br/>
 
