@@ -29,9 +29,9 @@ Supported platforms:
 
 ## App Screenshot
 
-![GPT 5.O App Screenshot](./docs/app-screenshot.png)
+![GPT 5.O App Screenshot](./app-screenshot.png)
 
-Place your screenshot file at `docs/app-screenshot.png`.
+
 
 ## Tech Stack
 
