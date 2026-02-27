@@ -1,4 +1,11 @@
-import { useState, KeyboardEvent, useEffect, useRef, useLayoutEffect } from "react";
+import {
+  memo,
+  useState,
+  KeyboardEvent,
+  useEffect,
+  useRef,
+  useLayoutEffect,
+} from "react";
 import { getSocket } from "../../services/socket.service";
 import { useMessageStore } from "../../store/message.store";
 import {
@@ -53,7 +60,7 @@ const EmojiIcon = () => (
   </svg>
 );
 
-export default function MessageInput({
+function MessageInput({
   chatId,
   receiverId,
   disabled = false,
@@ -128,9 +135,17 @@ export default function MessageInput({
   useEffect(() => {
     if (!chatId || !senderId || isEditing) return;
     const key = getDraftStorageKey(senderId, chatId);
-    if (text.length) localStorage.setItem(key, text);
-    else localStorage.removeItem(key);
-  }, [text, chatId, senderId, isEditing]);
+    if (!isMobile) {
+      if (text.length) localStorage.setItem(key, text);
+      else localStorage.removeItem(key);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (text.length) localStorage.setItem(key, text);
+      else localStorage.removeItem(key);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [text, chatId, senderId, isEditing, isMobile]);
 
   useEffect(() => {
     if (!editTarget) return;
@@ -153,13 +168,14 @@ export default function MessageInput({
   }, [isMobile, disabled, showEmojiPicker, chatId]);
 
   const send = async () => {
-    if (!text.trim() || !senderId) return;
+    const outgoingText = text.trim();
+    if (!outgoingText || !senderId) return;
     if (!isMobile) {
       setShowEmojiPicker(false);
     }
 
     if (isEditing && editTarget) {
-      const editedText = text.trim();
+      const editedText = outgoingText;
       const targetId = editTarget.id;
 
       patchMessage(targetId, {
@@ -190,13 +206,17 @@ export default function MessageInput({
     const messageId = crypto.randomUUID();
     const replyTo = replyToMessage?.id;
 
+    if (isMobile) {
+      setText("");
+    }
+
     const baseMessage: Message = {
       id: messageId,
       clientId: messageId,
       chatId,
       senderId,
       type: MessageType.TEXT,
-      text,
+      text: outgoingText,
       ...(replyTo ? { replyTo } : {}),
       createdAt: Date.now(),
       status:
@@ -221,7 +241,7 @@ export default function MessageInput({
         {
           chatId,
           receiverId,
-          text,
+          text: outgoingText,
           clientId: messageId,
           ...(replyTo ? { replyTo } : {}),
         },
@@ -253,7 +273,9 @@ export default function MessageInput({
       isTypingRef.current = false;
     }
 
-    setText("");
+    if (!isMobile) {
+      setText("");
+    }
     onCancelReply?.();
     if (isMobile && !disabled && document.activeElement !== textareaRef.current) {
       requestAnimationFrame(() => {
@@ -307,8 +329,10 @@ export default function MessageInput({
       const target = event.target as Node | null;
       if (!target) return;
       const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-      if (emojiButtonRef.current?.contains(target) || path.includes(emojiButtonRef.current)) return;
-      if (emojiPanelRef.current?.contains(target) || path.includes(emojiPanelRef.current)) return;
+      const emojiButton = emojiButtonRef.current;
+      const emojiPanel = emojiPanelRef.current;
+      if (emojiButton?.contains(target) || (emojiButton && path.includes(emojiButton))) return;
+      if (emojiPanel?.contains(target) || (emojiPanel && path.includes(emojiPanel))) return;
       setShowEmojiPicker(false);
     };
     window.addEventListener("mousedown", closeOnOutside, true);
@@ -520,13 +544,7 @@ export default function MessageInput({
               ref={textareaRef}
               value={text}
               onChange={(e) => {
-                const nextText = e.target.value;
-                setText(nextText);
-                if (chatId && senderId && !isEditing) {
-                  const key = getDraftStorageKey(senderId, chatId);
-                  if (nextText.length) localStorage.setItem(key, nextText);
-                  else localStorage.removeItem(key);
-                }
+                setText(e.target.value);
                 triggerTyping();
               }}
               onKeyDown={onKeyDown}
@@ -603,13 +621,7 @@ export default function MessageInput({
               ref={textareaRef}
               value={text}
               onChange={(e) => {
-                const nextText = e.target.value;
-                setText(nextText);
-                if (chatId && senderId && !isEditing) {
-                  const key = getDraftStorageKey(senderId, chatId);
-                  if (nextText.length) localStorage.setItem(key, nextText);
-                  else localStorage.removeItem(key);
-                }
+                setText(e.target.value);
                 triggerTyping();
               }}
               onKeyDown={onKeyDown}
@@ -676,3 +688,16 @@ export default function MessageInput({
     </div>
   );
 }
+
+const areEqual = (prev: MessageInputProps, next: MessageInputProps) => {
+  return (
+    prev.chatId === next.chatId &&
+    prev.receiverId === next.receiverId &&
+    prev.disabled === next.disabled &&
+    prev.selectionMode === next.selectionMode &&
+    (prev.replyToMessage?.id ?? null) === (next.replyToMessage?.id ?? null) &&
+    (prev.editTarget?.id ?? null) === (next.editTarget?.id ?? null)
+  );
+};
+
+export default memo(MessageInput, areEqual);

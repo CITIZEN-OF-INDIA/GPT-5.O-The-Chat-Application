@@ -11,6 +11,7 @@ import {
 } from "../db/message.repo";
 import { normalizeMessage } from "../utils/normalizeMessage";
 import { runSyncCycle } from "../services/sync.service";
+import { useAuthStore } from "../store/auth.store";
 
 
 export const useSocket = (token: string | null) => {
@@ -19,6 +20,7 @@ export const useSocket = (token: string | null) => {
 
     const socket = connectSocket(token);
     const myUserId = getUserIdFromToken(token);
+    let refreshingAuth = false;
     const handleConnect = () => {
       void runSyncCycle();
     };
@@ -32,8 +34,34 @@ export const useSocket = (token: string | null) => {
         ensureConnected();
       }
     };
+    const handleConnectError = async (error: Error) => {
+      const message = String(error?.message ?? "").toLowerCase();
+      const unauthorized = message.includes("unauthorized");
+      if (!unauthorized || refreshingAuth) return;
+
+      refreshingAuth = true;
+      const ok = await useAuthStore.getState().refreshSession();
+      refreshingAuth = false;
+
+      if (!ok) {
+        useAuthStore.getState().logout();
+        return;
+      }
+
+      const nextToken = useAuthStore.getState().token;
+      if (!nextToken) {
+        useAuthStore.getState().logout();
+        return;
+      }
+
+      socket.auth = { token: nextToken };
+      if (!socket.connected) {
+        socket.connect();
+      }
+    };
 
     socket.on("connect", handleConnect);
+    socket.on("connect_error", handleConnectError);
     if (socket.connected) {
       void runSyncCycle();
     }
@@ -125,6 +153,7 @@ export const useSocket = (token: string | null) => {
       socket.off("message:updated");
       socket.off("message:deleted");
       socket.off("connect", handleConnect);
+      socket.off("connect_error", handleConnectError);
       window.removeEventListener("focus", ensureConnected);
       window.removeEventListener("online", ensureConnected);
       document.removeEventListener("visibilitychange", handleVisibilityChange);

@@ -24,6 +24,7 @@ import {
   getMessagesByIds,
   getMessagesByChatPage,
   patchMessage as patchMessageInDB,
+  searchMessageIdsByChat,
   updateMessageStatus,
 } from "../../db/message.repo";
 import { normalizeChat } from "../../utils/normalizeChat";
@@ -131,6 +132,7 @@ export default function ChatWindow() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchActiveIndex, setSearchActiveIndex] = useState(0);
+  const [searchMatchedMessageIds, setSearchMatchedMessageIds] = useState<string[]>([]);
   const [fallbackPinnedMessage, setFallbackPinnedMessage] = useState<Message | null>(null);
   const [deleteTargetIds, setDeleteTargetIds] = useState<string[] | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -258,6 +260,7 @@ export default function ChatWindow() {
     setSearchOpen(false);
     setSearchQuery("");
     setSearchActiveIndex(0);
+    setSearchMatchedMessageIds([]);
     setDeleteDialogOpen(false);
     setDeleteTargetIds(null);
     setContextMenu(null);
@@ -360,14 +363,28 @@ export default function ChatWindow() {
     return messages.filter((m) => ids.has(getSelectionKey(m)));
   }, [messages, selectedIds]);
 
-  const searchMatchedMessageIds = useMemo(() => {
-    const needle = searchQuery.trim().toLowerCase();
-    if (!needle) return [];
+  useEffect(() => {
+    if (!activeChat?.id) {
+      setSearchMatchedMessageIds([]);
+      return;
+    }
 
-    return messages
-      .filter((m) => !m.deleted && Boolean(m.text?.toLowerCase().includes(needle)))
-      .map((m) => m.id);
-  }, [messages, searchQuery]);
+    const needle = searchQuery.trim();
+    if (!needle) {
+      setSearchMatchedMessageIds([]);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const ids = await searchMessageIdsByChat(activeChat.id, needle);
+      if (!cancelled) setSearchMatchedMessageIds(ids);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat?.id, allMessages, searchQuery]);
 
   const deleteCandidates = useMemo(() => {
     if (!deleteTargetIds?.length) return selectedMessages;

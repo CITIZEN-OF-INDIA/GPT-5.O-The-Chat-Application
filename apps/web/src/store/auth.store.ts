@@ -5,29 +5,103 @@ import { resolveApiUrl } from "../utils/network";
 
 interface AuthState {
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
-  restoreSession: () => void;
+  restoreSession: () => Promise<void>;
+  refreshSession: () => Promise<boolean>;
   setToken: (token: string) => void;
   logout: () => void;
   setError: (error: string | null) => void;
 }
 
+const decodeJwtPayload = (token: string) => {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    return JSON.parse(atob(part));
+  } catch {
+    return null;
+  }
+};
+
+const isTokenExpired = (token: string) => {
+  const payload = decodeJwtPayload(token);
+  const exp = Number(payload?.exp);
+  if (!Number.isFinite(exp)) return true;
+  return exp * 1000 <= Date.now();
+};
+
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
+  refreshToken: null,
   isAuthenticated: false,
   isLoading: false,
   error: null,
 
   setError: (error) => set({ error }),
 
-  restoreSession: () => {
+  restoreSession: async () => {
     const token = localStorage.getItem("token");
-    if (token) {
-      set({ token, isAuthenticated: true });
+    const refreshToken = localStorage.getItem("refreshToken");
+
+    if (!token && !refreshToken) {
+      set({ token: null, refreshToken: null, isAuthenticated: false });
+      return;
+    }
+
+    if (token && !isTokenExpired(token)) {
+      set({ token, refreshToken, isAuthenticated: true, error: null });
+      return;
+    }
+
+    const ok = await useAuthStore.getState().refreshSession();
+    if (!ok) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("refreshToken");
+      set({ token: null, refreshToken: null, isAuthenticated: false });
+    }
+  },
+
+  refreshSession: async () => {
+    const refreshToken = localStorage.getItem("refreshToken");
+    if (!refreshToken) return false;
+
+    try {
+      const res = await fetch(resolveApiUrl("/auth/refresh"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!res.ok) {
+        return false;
+      }
+
+      const tokens = await res.json();
+      const nextAccessToken = tokens?.accessToken;
+      const nextRefreshToken = tokens?.refreshToken;
+
+      if (!nextAccessToken || !nextRefreshToken) {
+        return false;
+      }
+
+      localStorage.setItem("token", nextAccessToken);
+      localStorage.setItem("refreshToken", nextRefreshToken);
+
+      set({
+        token: nextAccessToken,
+        refreshToken: nextRefreshToken,
+        isAuthenticated: true,
+        error: null,
+      });
+
+      return true;
+    } catch {
+      return false;
     }
   },
 
@@ -49,11 +123,17 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
 
-      const { accessToken } = await res.json();
+      const { accessToken, refreshToken } = await res.json();
+      if (!accessToken || !refreshToken) {
+        set({ isLoading: false, error: "Server error. Try again" });
+        return;
+      }
       localStorage.setItem("token", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
 
       set({
         token: accessToken,
+        refreshToken,
         isAuthenticated: true,
         isLoading: false,
         error: null,
@@ -86,11 +166,17 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
 
-      const { accessToken } = await res.json();
+      const { accessToken, refreshToken } = await res.json();
+      if (!accessToken || !refreshToken) {
+        set({ isLoading: false, error: "Registration failed" });
+        return;
+      }
       localStorage.setItem("token", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
 
       set({
         token: accessToken,
+        refreshToken,
         isAuthenticated: true,
         isLoading: false,
         error: null,
@@ -112,8 +198,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     disconnectSocket();
     usePresenceStore.getState().reset();
     localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
     set({
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
       error: null,
     });

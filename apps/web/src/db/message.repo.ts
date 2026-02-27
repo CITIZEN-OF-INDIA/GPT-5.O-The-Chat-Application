@@ -68,6 +68,31 @@ export async function getMessagesByIds(messageIds: string[]): Promise<Message[]>
   return rows.filter((row): row is Message => Boolean(row));
 }
 
+export async function searchMessageIdsByChat(
+  chatId: string,
+  query: string
+): Promise<string[]> {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+
+  const db = await getDB();
+  const index = db.transaction("messages").store.index("by-chat-createdAt");
+  const range = IDBKeyRange.bound([chatId, 0], [chatId, Number.MAX_SAFE_INTEGER]);
+
+  const ids: string[] = [];
+  let cursor = await index.openCursor(range, "next");
+
+  while (cursor) {
+    const msg = cursor.value;
+    if (!msg.deleted && typeof msg.text === "string" && msg.text.toLowerCase().includes(needle)) {
+      ids.push(msg.id);
+    }
+    cursor = await cursor.continue();
+  }
+
+  return ids;
+}
+
 export async function getLatestPinnedMessageByChat(
   chatId: string
 ): Promise<Message | null> {
